@@ -3,6 +3,7 @@ package coop.icc.escher.pinedesk;
 import java.sql.*;
 import javax.sql.*;
 import java.util.*;
+import coop.icc.escher.pinedesk.util.DoubleKeyCache;
 
 public class User {
     //STATIC LOOKUP/CREATE METHODS
@@ -24,12 +25,43 @@ public class User {
     public static User lookup (String email) throws SQLException,
                                                     NamingException,
                                                     NoSuchUserException {
+        if (s_userCache.contains(email))
+            return s_userCache.lookup(email);
+
         try (Connection conn = Common.getConnection()) {
-            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_SQL)) {
+            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_EMAIL_SQL)) {
                 pstmt.setString(1, email);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
-                    if (rs.next()) return new User (rs);
+                    if (rs.next()) {
+                        user = new User (rs);
+                        s_userCache.insert(user.getId(), user.getEmail(), user);
+                        return user;
+                    }
+                    else throw new NoSuchUserException (email);
+                }
+            }
+        }
+
+        return new User ();
+    }
+    
+    public static User lookup (int id) throws SQLException,
+                                                    NamingException,
+                                                    NoSuchUserException {
+        if (s_userCache.contains(id))
+            return s_userCache.lookup(id);
+
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_ID_SQL)) {
+                pstmt.setInt(1, id);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) {
+                        user = new User (rs);
+                        s_userCache.insert(user.getId(), user.getEmail(), user);
+                        return user;
+                    }
                     else throw new NoSuchUserException (email);
                 }
             }
@@ -203,15 +235,7 @@ public class User {
         m_room = rs.getString(7);
     }
 
-    private static String EXISTS_SQL = "SELECT COUNT(*) FROM users WHERE email=?";
-    private static String LOOKUP_SQL = "SELECT userid, email, passhash, "
-        + "google, firstname, lastname, room FROM users WHERE email=?";
-    private static String RELOAD_SQL = "SELECT email, passhash, google, "
-        + "firstname, lastname, room FROM users WHERE userid=?";
-    private static String UPDATE_SQL = "UPDATE users SET %s=? WHERE userid=?";
-    private static String NEW_SQL = "INSERT INTO users (email, passhash, "
-        + "google, firstname, lastname, room) VALUES (?,?,?,?,?,?)";
-
+    //MEMBERS
     private String m_email;
     private String m_passHash;
     private String m_firstName;
@@ -220,4 +244,18 @@ public class User {
     private int m_userId;
     private bool m_google;
     private bool m_exists;
+
+    //STATIC MEMBERS
+    private static final String EXISTS_SQL = "SELECT COUNT(*) FROM users WHERE email=?";
+    private static final String LOOKUP_EMAIL_SQL = "SELECT userid, email, "
+        + "passhash, google, firstname, lastname, room FROM users WHERE email=?";
+    private static final String LOOKUP_ID_SQL = "SELECT userid, email, "
+        + "passhash, google, firstname, lastname, room FROM users WHERE userid=?";
+    private static final String RELOAD_SQL = "SELECT email, passhash, google, "
+        + "firstname, lastname, room FROM users WHERE userid=?";
+    private static final String UPDATE_SQL = "UPDATE users SET %s=? WHERE userid=?";
+    private static final String NEW_SQL = "INSERT INTO users (email, passhash, "
+        + "google, firstname, lastname, room) VALUES (?,?,?,?,?,?)";
+
+    private static DoubleKeyCache<Integer, String, User> s_userCache;
 }
