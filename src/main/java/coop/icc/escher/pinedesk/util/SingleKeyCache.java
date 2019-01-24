@@ -35,6 +35,7 @@ public class SingleKeyCache<K, T> {
     }
 
     public void evict (K key) { m_map.remove(key); }
+    public void clear () { m_map.clear(); }
 
     public void insert (K key, T val) {
         if (contains(key)) return;

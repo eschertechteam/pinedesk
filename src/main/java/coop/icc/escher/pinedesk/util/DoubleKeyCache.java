@@ -79,6 +79,11 @@ public class DoubleKeyCache<K1, K2, T> {
         m_k2Map.remove(key);
     }
 
+    public void clear () {
+        m_k1Map.clear();
+        m_k2Map.clear();
+    }
+
     public void insert (K1 key1, K2 key2, T val) {
         if (contains(key1)) return;
 
