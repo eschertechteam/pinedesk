@@ -5,6 +5,7 @@ import javax.sql.*;
 import java.util.*;
 
 public class User {
+    //STATIC LOOKUP/CREATE METHODS
     public static boolean exists (String email) throws SQLException,
                                                        NamingException {
         try (Connection conn = Common.getConnection()) {
@@ -61,18 +62,14 @@ public class User {
         }
     }
 
+    //CONSTRUCTORS
     public User () { m_exists = false; }
     User (ResultSet rs) throws SQLException {
-        m_userId = rs.getInt(1);
-        m_email = rs.getString(2);
-        m_passHash = Common.notNull(rs.getString(3));
-        m_google = rs.getBoolean(4);
-        m_firstName = Common.notNull(rs.getString(5));
-        m_lastName = Common.notNull(rs.getString(6));
-        m_room = rs.getString(7);
+        load(rs);
         m_exists = true;
     }
 
+    //GETTERS AND SETTERS
     public int getId () { return m_userId; }
 
     public String getEmail () { return m_email; }
@@ -140,6 +137,20 @@ public class User {
         if (m_google) m_passHash = "";
     }
 
+    //PUBLIC HELPER FUNCTIONS
+    public void reload () throws SQLException, NamingException {
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(RELOAD_SQL)) {
+                pstmt.setInt(1, m_userId);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) load(rs);
+                }
+            }
+        }
+    }
+
+    //PRIVATE HELPER FUNCTIONS
     private void update (String key, String value) throws SQLException,
                                                           NamingException {
         try (Connection conn = Common.getConnection()) {
@@ -182,9 +193,21 @@ public class User {
         }
     }
 
+    private void load (ResultSet rs) throws SQLException {
+        m_userId = rs.getInt(1);
+        m_email = rs.getString(2);
+        m_passHash = Common.notNull(rs.getString(3));
+        m_google = rs.getBoolean(4);
+        m_firstName = Common.notNull(rs.getString(5));
+        m_lastName = Common.notNull(rs.getString(6));
+        m_room = rs.getString(7);
+    }
+
     private static String EXISTS_SQL = "SELECT COUNT(*) FROM users WHERE email=?";
     private static String LOOKUP_SQL = "SELECT userid, email, passhash, "
         + "google, firstname, lastname, room FROM users WHERE email=?";
+    private static String RELOAD_SQL = "SELECT email, passhash, google, "
+        + "firstname, lastname, room FROM users WHERE userid=?";
     private static String UPDATE_SQL = "UPDATE users SET %s=? WHERE userid=?";
     private static String NEW_SQL = "INSERT INTO users (email, passhash, "
         + "google, firstname, lastname, room) VALUES (?,?,?,?,?,?)";
