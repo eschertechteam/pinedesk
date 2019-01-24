@@ -9,11 +9,11 @@ public class SingleKeyCache<K, T> {
         public long lastAccessed;
     }
 
-    public Cache () {
+    public SingleKeyCache () {
         this(DEFAULT_CACHE_CAPACITY);
     }
 
-    public Cache (int capacity) {
+    public SingleKeyCache (int capacity) {
         //Use a slightly larger capacity for the hash maps to avoid growth during normal operation
         int adjCapacity = (int)((1./HASH_LOAD_FACTOR) * (double)capacity);
         m_capacity = capacity;
@@ -67,5 +67,5 @@ public class SingleKeyCache<K, T> {
     private int m_capacity;
     
     private static final double HASH_LOAD_FACTOR = 0.75;
-    private static final int DEFAULT_CACHE_CAPACITY = 64;
+    private static final int DEFAULT_CACHE_CAPACITY = 128;
 }

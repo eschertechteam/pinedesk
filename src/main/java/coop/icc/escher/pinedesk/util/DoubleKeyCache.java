@@ -9,11 +9,11 @@ public class DoubleKeyCache<K1, K2, T> {
         public long lastAccessed;
     }
 
-    public Cache () {
+    public DoubleKeyCache () {
         this(DEFAULT_CACHE_CAPACITY);
     }
 
-    public Cache (int capacity) {
+    public DoubleKeyCache (int capacity) {
         //Use a slightly larger capacity for the hash maps to avoid growth during normal operation
         int adjCapacity = (int)((1./HASH_LOAD_FACTOR) * (double)capacity);
         m_capacity = capacity;
