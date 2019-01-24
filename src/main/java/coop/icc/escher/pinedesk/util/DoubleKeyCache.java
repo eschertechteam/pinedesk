@@ -94,7 +94,6 @@ public class DoubleKeyCache<K1, K2, T> {
 
     private void evictOldest () {
         K1 oldestK1 = null;
-        K2 oldestK2 = null;
         Line<T> oldestLine = null;
 
         for (Map.Entry<K1, Line<T>> line : m_k1Map.entrySet()) {
@@ -105,15 +104,7 @@ public class DoubleKeyCache<K1, K2, T> {
             }
         }
 
-        for (Map.Entry<K2, Line<T>> line : m_k2Map.entrySet()) {
-            if (line.getValue() == oldestLine) {
-                oldestK2 = line.getKey();
-                break;
-            }
-        }
-
-        m_k1Map.remove(oldestK1);
-        m_k2Map.remove(oldestK2);
+        evict(oldestK1);
     }
 
     private Map<K1, Line<T>> m_k1Map;

@@ -60,7 +60,7 @@ public class SingleKeyCache<K, T> {
             }
         }
 
-        m_map.remove(oldestK);
+        evict(oldestK);
     }
 
     private Map<K, Line<T>> m_map;
