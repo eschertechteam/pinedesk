@@ -37,7 +37,9 @@ public class User {
             return s_userCache.lookup(email);
 
         try (Connection conn = Common.getConnection()) {
-            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_EMAIL_SQL)) {
+            String sql = String.format(LOOKUP_SQL, "email");
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, email);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
@@ -57,7 +59,9 @@ public class User {
             return s_userCache.lookup(id);
 
         try (Connection conn = Common.getConnection()) {
-            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_ID_SQL)) {
+            String sql = String.format(LOOKUP_SQL, "userid");
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setLong(1, id);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
@@ -122,6 +126,7 @@ public class User {
         load(rs);
         s_userCache.insert(m_userId, m_email, this);
         m_exists = true;
+        m_passHash = "";
     }
 
     //GETTERS AND SETTERS
@@ -135,12 +140,24 @@ public class User {
         m_email = newEmail;
     }
 
-    public boolean verifyPassword (String password) {
+    public boolean verifyPassword (String password) throws SQLException,
+                                                           NamingException {
         if (m_google) return false;
 
         PasswordVerifier verify = new PasswordVerifier ();
+        String passhash = "";
 
-        return verify.authenticate(password.toCharArray(), m_passHash); 
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(READ_PASSHASH_SQL)) {
+                pstmt.setLong(1, m_userId);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) passhash = rs.getString(1);
+                    else return false;
+                }
+            }
+        }
+        return verify.authenticate(password.toCharArray(), passhash); 
     }
     public void setPassword (String newPassword) throws SQLException,
                                                         NamingException {
@@ -150,8 +167,7 @@ public class User {
         String newHash = verify.hash(newPassword.toCharArray());
 
         if (m_exists) update("passhash", newHash);
-
-        m_passHash = newHash;
+        else m_passHash = newHash;
     }
 
     public String getFirstName () { return m_firstName; }
@@ -195,7 +211,9 @@ public class User {
     //PUBLIC HELPER FUNCTIONS
     public void reload () throws SQLException, NamingException {
         try (Connection conn = Common.getConnection()) {
-            try (PreparedStatement pstmt = conn.prepareStatement(RELOAD_SQL)) {
+            String sql = String.format(LOOKUP_SQL, "userid");
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setLong(1, m_userId);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
@@ -209,7 +227,7 @@ public class User {
         if (shouldExist && !m_exists) return false;
         if (m_email.length() == 0) return false;
         if (!Common.isValidRoom(m_room, true)) return false;
-        if (m_passHash.length() == 0 && !m_google) return false;
+        if (!m_exists && m_passHash.length() == 0 && !m_google) return false;
 
         return true;
     }
@@ -246,7 +264,6 @@ public class User {
     private void load (ResultSet rs) throws SQLException {
         m_userId = rs.getLong("userid");
         m_email = rs.getString("email");
-        m_passHash = Common.notNull(rs.getString("email"));
         m_google = rs.getBoolean("google");
         m_firstName = Common.notNull(rs.getString("firstname"));
         m_lastName = Common.notNull(rs.getString("lastname"));
@@ -255,7 +272,7 @@ public class User {
 
     //MEMBERS
     private String m_email;
-    private String m_passHash;
+    private String m_passHash; //Only used for new users
     private String m_firstName;
     private String m_lastName;
     private String m_room;
@@ -264,16 +281,18 @@ public class User {
     private bool m_exists;
 
     //STATIC MEMBERS
-    private static final String EXISTS_SQL = "SELECT COUNT(*) FROM users WHERE email=?";
-    private static final String LOOKUP_EMAIL_SQL = "SELECT userid, email, "
-        + "passhash, google, firstname, lastname, room FROM users WHERE email=?";
-    private static final String LOOKUP_ID_SQL = "SELECT userid, email, "
-        + "passhash, google, firstname, lastname, room FROM users WHERE userid=?";
-    private static final String RELOAD_SQL = "SELECT email, passhash, google, "
-        + "firstname, lastname, room FROM users WHERE userid=?";
-    private static final String UPDATE_SQL = "UPDATE users SET %s=? WHERE userid=?";
-    private static final String NEW_SQL = "INSERT INTO users (email, passhash, "
-        + "google, firstname, lastname, room) VALUES (?,?,?,?,?,?)";
+    private static final String EXISTS_SQL =
+        "SELECT COUNT(*) FROM users WHERE email=?";
+    private static final String LOOKUP_SQL =
+        "SELECT userid, email, google, firstname, lastname, room "
+        + "FROM users WHERE %s=?";
+    private static final String READ_PASSHASH_SQL =
+        "SELECT passhash FROM users WHERE userid=?";
+    private static final String UPDATE_SQL =
+        "UPDATE users SET %s=? WHERE userid=?";
+    private static final String NEW_SQL =
+        "INSERT INTO users (email, passhash, google, firstname, lastname, room) "
+        + "VALUES (?,?,?,?,?,?)";
 
     private static DoubleKeyCache<Long, String, User> s_userCache;
 }
