@@ -205,6 +205,15 @@ public class User {
         }
     }
 
+    public boolean isValid (boolean shouldExist) {
+        if (shouldExist && !m_exists) return false;
+        if (m_email.length() == 0) return false;
+        if (!Common.isValidRoom(m_room, true)) return false;
+        if (m_passHash.length() == 0 && !m_google) return false;
+
+        return true;
+    }
+
     //PRIVATE HELPER FUNCTIONS
     private void update (String key, String value) throws SQLException,
                                                           NamingException {

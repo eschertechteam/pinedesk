@@ -7,10 +7,34 @@ public class UserExistsException extends Exception {
         else
             super("Cannot unlink an account that has already been linked to Google.");
     }
-    public UserExistsException (String email) {
-        super("A user with email " + email + " already exists.");
+    public UserExistsException (String reason) {
+        super(reason);
     }
-    public UserExistsException (String email, Throwable cause) {
-        super("A user with email " + email + " already exists.", cause);
+    public UserExistsException (String reason, Throwable cause) {
+        super(reason, cause);
+    }
+
+    public static UserExistsException forGoogleLink (boolean attemptingLink) {
+        if (attemptingLink)
+            return new UserExistsException ("Cannot link an existing, unlinked account to Google.");
+        else
+            return new UserExistsException ("Cannot unlink an account that has already been linked to Google.");
+    }
+    public static UserExistsException forUserCreate (User u) {
+        return new UserExistsException ("A user with email " + u.getEmail() + " already exists.");
+    }
+    public static UserExistsException forUserCreate (User u, Throwable cause) {
+        return new UserExistsException ("A user with email " + u.getEmail() + " already exists.", cause);
+    }
+    public static UserExistsException forGroupAdd (User u, Group g) {
+        return new UserExistsException ("User " + String.valueOf(u.getId())
+                                        + " is already in group "
+                                        + String.valueOf(g.getId()));
+    }
+    public static UserExistsException forGroupAdd (User u, Group g,
+                                                   Throwable cause) {
+        return new UserExistsException ("User " + String.valueOf(u.getId()) 
+                                        + " is already in group " 
+                                        + String.valueOf(g.getId()), cause);
     }
 }
