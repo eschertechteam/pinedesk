@@ -37,6 +37,54 @@ public class Group {
         return groups;
     }
 
+    public static void add (Group group) throws SQLException,
+                                                NamingException,
+                                                GroupExistsException {
+        if (group.m_members.size() == 0)
+            throw new IllegalArgumentException ("No members in group");
+        if (group.m_admin == null)
+            throw new IllegalArgumentException ("Group has no administrator");
+        if (group.m_name.length() == 0)
+            throw new IllegalArgumentException ("Group has no name");
+
+        try (Connection conn = Common.getConnection()) {
+            //Create group
+            try (PreparedStatement pstmt = conn.prepareStatement(GROUP_ADD_SQL)) {
+                pstmt.setString(1, group.m_name);
+                pstmt.setString(2, group.m_longName);
+                pstmt.setString(3, group.m_description);
+                pstmt.setLong(4, group.m_groupId);
+
+                pstmt.executeUpdate();
+
+                try (ResultSet rs = pstmt.getGeneratedKeys()) {
+                    if (rs.next()) {
+                        group.m_groupId = rs.getLong(1);
+                        group.m_exists = true;
+                    }
+                }
+            } catch (SQLException sqle) {
+                //MySQL/MariaDB error code for duplicate primary key
+                //TODO: use an enum for this
+                if (sqle.getErrorCode() == 1022)
+                    throw new GroupExistsException(group, sqle);
+                else
+                    throw sqle;
+            }
+
+            //Add group members
+            try (PreparedStatement pstmt = conn.prepareStatement(ADD_MEMBER_SQL)) {
+                for (User member : m_members) {
+                    pstmt.setLong(1, group.m_groupId);
+                    pstmt.setLong(2, member.getId());
+                    pstmt.addBatch();
+                }
+
+                pstmt.executeBatch();
+            }
+        }
+    }
+
     private static User getUser (ResultSet rs) throws SQLException {
         long id = rs.getLong("userid");
 
@@ -51,8 +99,7 @@ public class Group {
     }
 
     public Group (User admin) {
-        m_name = "";
-        m_description = "";
+        m_name = m_longName = m_description = "";
         m_admin = admin;
         m_exists = false;
         m_members = new ArrayList<User> ();
@@ -61,23 +108,19 @@ public class Group {
     private Group (ResultSet rs) throws SQLException {
         m_groupId = rs.getLong("groupid");
         m_name = rs.getString("name");
+        m_longName = rs.getString("longname");
         m_description = rs.getString("description");
         m_admin = getUser(rs);
         m_exists = true;
 
         m_members = new ArrayList<User> ();
-        Connection conn = rs.getStatement().getConnection();
-
-        try (PreparedStatement pstmt = conn.prepareStatement(MEMBER_LOOKUP_SQL)) {
-            pstmt.setLong(1, m_groupId);
-
-            try (ResultSet urs = pstmt.executeQuery()) {
-                while (urs.next()) m_members.add(getUser(urs));
-            }
-        }
     }
 
+    public long getId () { return m_groupId; }
+
     public boolean hasMember (User user) {
+        if (m_exists && m_members.length() == 0) updateMembers();
+
         for (User u : m_members) {
             if (u.getId() == user.getId()) return true;
         }
@@ -86,6 +129,8 @@ public class Group {
     }
 
     public List<User> getMember () {
+        if (m_exists && m_members.length() == 0) updateMembers();
+
         return Collections.unmodifiableList(m_members);
     }
     public void addMember (User user) throws SQLException,
@@ -96,6 +141,8 @@ public class Group {
             throw new NoSuchUserException ("User is invalid or does not exist");
 
         if (m_exists) {
+            if (m_members.length() == 0) updateMembers();
+
             try (Connection conn = Common.getConnection()) {
                 try (PreparedStatement pstmt = conn.prepareStatement(ADD_MEMBER_SQL)) {
                     pstmt.setLong(1, m_groupId);
@@ -114,6 +161,9 @@ public class Group {
                     }
                 }
             }
+        } else {
+            if (hasMember(user))
+                throw UserExistsException.forGroupAdd(user, this);
         }
 
         m_members.add(user);
@@ -125,6 +175,8 @@ public class Group {
             throw new NoSuchUserException ("User is invalid or does not exist");
 
         if (m_exists) {
+            if (m_members.length() == 0) updateMembers();
+
             try (Connection conn = Common.getConnection()) {
                 try (PreparedStatement pstmt = conn.prepareStatement(REMOVE_MEMBER_SQL)) {
                     pstmt.setLong(1, m_groupId);
@@ -138,7 +190,7 @@ public class Group {
             }
         }
 
-        for (int i = 0; i < m_members.length(); ++i) {
+        for (int i = 0; i < m_members.size(); ++i) {
             if (m_members.get(i).getId() == user.getId()) {
                 m_members.remove(i);
                 break;
@@ -152,6 +204,8 @@ public class Group {
                                             NoSuchUserException {
         if (!user.isValid(true))
             throw new NoSuchUserException ("User is invalid or does not exist");
+        if (!hasMember(user))
+            throw new NoSuchUserException ("User is not a member of this group");
 
         if (m_exists) update("admin", user.getId());
 
@@ -163,6 +217,13 @@ public class Group {
         if (m_exists) update("name", name);
 
         m_name = name;
+    }
+
+    public String getLongName () { return m_longName; }
+    public void setLongName (String longName) throws SQLException, NamingException {
+        if (m_exists) update("longname", longName);
+
+        m_longName = longName;
     }
 
     public String getDescription () { return m_description; }
@@ -201,20 +262,36 @@ public class Group {
         }
     }
 
+    private void updateMembers () throws SQLException,
+                                         NamingException {
+        m_members.clear();
+
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(MEMBER_LOOKUP_SQL)) {
+                pstmt.setLong(1, m_groupId);
+
+                try (ResultSet urs = pstmt.executeQuery()) {
+                    while (urs.next()) m_members.add(getUser(urs));
+                }
+            }
+        }
+    }
+
     private List<User> m_members;
     private User m_admin;
     private String m_name;
+    private String m_longName;
     private String m_description; 
     private long m_groupId;
     private boolean m_exists;
 
     private static final String LOOKUP_ALL_SQL = 
-        "SELECT g.groupid, g.name, g.description, u.userid, u.email, "
-        + "u.passhash, u.google, u.firstname, u.lastname, u.room "
+        "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
+        + "u.email, u.passhash, u.google, u.firstname, u.lastname, u.room "
         + "FROM groups g JOIN users u ON g.admin=u.userid ORDER BY g.groupid";
     private static final String LOOKUP_BY_MEMBER_SQL =
-        "SELECT g.groupid, g.name, g.description, u.userid, u.email, "
-        + "u.passhash, u.google, u.firstname, u.lastname, u.room "
+        "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
+        + "u.email, u.passhash, u.google, u.firstname, u.lastname, u.room "
         + "FROM groups g NATURAL JOIN gmember m "
         + "JOIN users u ON g.admin=u.userid "
         + "WHERE m.userid=? ORDER BY g.groupid";
@@ -222,6 +299,9 @@ public class Group {
         "SELECT userid, u.email, u.passhash, u.google, u.firstname, "
         + "u.lastname, u.room FROM gmembers g NATURAL JOIN users u "
         + "WHERE g.groupid=? ORDER BY u.lastname ASC, u.firstname ASC";
+    private static final String GROUP_ADD_SQL =
+        "INSERT INTO groups (name, longname, description, admin) "
+        + "VALUES (?,?,?,?)";
     private static final String ADD_MEMBER_SQL = 
         "INSERT INTO gmembers (groupid, userid) VALUES (?,?)";
     private static final String REMOVE_MEMBER_SQL =
