@@ -22,6 +22,14 @@ public class User {
         return false;
     }
 
+    public static boolean inCache (String email) {
+        return s_userCache.contains(email);
+    }
+
+    public static boolean inCache (long id) {
+        return s_userCache.contains(id);
+    }
+
     public static User lookup (String email) throws SQLException,
                                                     NamingException,
                                                     NoSuchUserException {
@@ -33,11 +41,7 @@ public class User {
                 pstmt.setString(1, email);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
-                    if (rs.next()) {
-                        user = new User (rs);
-                        s_userCache.insert(user.getId(), user.getEmail(), user);
-                        return user;
-                    }
+                    if (rs.next()) return new User (rs);
                     else throw new NoSuchUserException (email);
                 }
             }
@@ -46,7 +50,7 @@ public class User {
         return new User ();
     }
     
-    public static User lookup (int id) throws SQLException,
+    public static User lookup (long id) throws SQLException,
                                                     NamingException,
                                                     NoSuchUserException {
         if (s_userCache.contains(id))
@@ -54,14 +58,10 @@ public class User {
 
         try (Connection conn = Common.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_ID_SQL)) {
-                pstmt.setInt(1, id);
+                pstmt.setLong(1, id);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
-                    if (rs.next()) {
-                        user = new User (rs);
-                        s_userCache.insert(user.getId(), user.getEmail(), user);
-                        return user;
-                    }
+                    if (rs.next()) return new User (rs);
                     else throw new NoSuchUserException (email);
                 }
             }
@@ -73,36 +73,59 @@ public class User {
     public static void add (User newUser) throws SQLException,
                                                  NamingException,
                                                  UserExistsException {
+        if (m_room.equals("")) 
+            throw new IllegalArgumentException ("User room number not set.");
+        if (m_email.equals(""))
+            throw new IllegalArgumentException ("User email not set.");
+        if (!m_google && m_passHash.equals(""))
+            throw new IllegalArgumentException ("User password not set.");
+
         try (Connection conn = Common.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement(NEW_SQL)) {
-                pstmt.setString(1, m_email);
-                pstmt.setString(2, m_passHash);
-                pstmt.setBoolean(3, m_google);
-                pstmt.setString(4, m_firstName);
-                pstmt.setString(5, m_lastName);
-                pstmt.setString(6, m_room);
+                pstmt.setString(1, newUser.m_email);
+                pstmt.setString(2, newUser.m_passHash);
+                pstmt.setBoolean(3, newUser.m_google);
+                pstmt.setString(4, newUser.m_firstName);
+                pstmt.setString(5, newUser.m_lastName);
+                pstmt.setString(6, newUser.m_room);
 
                 pstmt.executeUpdate();
 
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next()) {
-                        newUser.m_userId = rs.getInt(1);
+                        newUser.m_userId = rs.getLong(1);
                         newUser.m_exists = true;
+                        s_userCache.insert(newUser.m_userId, newUser.m_email, newUser);
                     }
+                } catch (SQLException sqle) {
+                    //UNIQUE constraint violation error code in MySQL/MariaDB
+                    //TODO: Import the driver and use an enum instead
+                    if (sqle.getErrorCode() == 1169)
+                        throw new UserExistsException(newUser.m_email, sqle);
+                    else
+                        throw e;
                 }
             }
         }
     }
 
     //CONSTRUCTORS
-    public User () { m_exists = false; }
+    public User () {
+        m_email = "";
+        m_passHash = "";
+        m_firstName = "";
+        m_lastName = "";
+        m_room = "";
+        m_exists = false;
+    }
     User (ResultSet rs) throws SQLException {
         load(rs);
+        s_userCache.insert(m_userId, m_email, this);
         m_exists = true;
     }
 
     //GETTERS AND SETTERS
-    public int getId () { return m_userId; }
+    public long getId () { return m_userId; }
 
     public String getEmail () { return m_email; }
     public void setEmail (String newEmail) throws SQLExcpetion,
@@ -173,7 +196,7 @@ public class User {
     public void reload () throws SQLException, NamingException {
         try (Connection conn = Common.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement(RELOAD_SQL)) {
-                pstmt.setInt(1, m_userId);
+                pstmt.setLong(1, m_userId);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
                     if (rs.next()) load(rs);
@@ -190,21 +213,7 @@ public class User {
 
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, value);
-                pstmt.setInt(2, m_userId);
-
-                pstmt.executeUpdate();
-            }
-        }
-    }
-
-    private void update (String key, int value) throws SQLException,
-                                                       NamingException {
-        try (Connection conn = Common.getConnection()) {
-            String sql = String.format(UPDATE_SQL, key);
-
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setInt(1, value);
-                pstmt.setInt(2, m_userId);
+                pstmt.setLong(2, m_userId);
 
                 pstmt.executeUpdate();
             }
@@ -218,7 +227,7 @@ public class User {
 
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setBoolean(1, value);
-                pstmt.setInt(2, m_userId);
+                pstmt.setLong(2, m_userId);
 
                 pstmt.executeUpdate();
             }
@@ -226,13 +235,13 @@ public class User {
     }
 
     private void load (ResultSet rs) throws SQLException {
-        m_userId = rs.getInt(1);
-        m_email = rs.getString(2);
-        m_passHash = Common.notNull(rs.getString(3));
-        m_google = rs.getBoolean(4);
-        m_firstName = Common.notNull(rs.getString(5));
-        m_lastName = Common.notNull(rs.getString(6));
-        m_room = rs.getString(7);
+        m_userId = rs.getLong("userid");
+        m_email = rs.getString("email");
+        m_passHash = Common.notNull(rs.getString("email"));
+        m_google = rs.getBoolean("google");
+        m_firstName = Common.notNull(rs.getString("firstname"));
+        m_lastName = Common.notNull(rs.getString("lastname"));
+        m_room = rs.getString("room");
     }
 
     //MEMBERS
@@ -241,7 +250,7 @@ public class User {
     private String m_firstName;
     private String m_lastName;
     private String m_room;
-    private int m_userId;
+    private long m_userId;
     private bool m_google;
     private bool m_exists;
 
@@ -257,5 +266,5 @@ public class User {
     private static final String NEW_SQL = "INSERT INTO users (email, passhash, "
         + "google, firstname, lastname, room) VALUES (?,?,?,?,?,?)";
 
-    private static DoubleKeyCache<Integer, String, User> s_userCache;
+    private static DoubleKeyCache<Long, String, User> s_userCache;
 }
