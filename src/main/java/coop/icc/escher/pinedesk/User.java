@@ -208,6 +208,8 @@ public class User {
         if (m_google) m_passHash = "";
     }
 
+    public List<Group> getGroups () { return Group.getByUser(this); }
+
     //PUBLIC HELPER FUNCTIONS
     public void reload () throws SQLException, NamingException {
         try (Connection conn = Common.getConnection()) {

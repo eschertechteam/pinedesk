@@ -25,7 +25,7 @@ public class SingleKeyCache<K, T> {
         return m_map.containsKey(key);
     }
 
-    public User lookup (K key) { 
+    public T lookup (K key) { 
         Line<T> line = m_map.get(email);
 
         if (line == null) return null;

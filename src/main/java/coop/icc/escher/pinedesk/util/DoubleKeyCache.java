@@ -29,7 +29,7 @@ public class DoubleKeyCache<K1, K2, T> {
         return m_k2Map.containsKey(key);
     }
 
-    public User lookup (K1 key) { 
+    public T lookup (K1 key) { 
         Line<T> line = m_k1Map.get(email);
 
         if (line == null) return null;
@@ -37,7 +37,7 @@ public class DoubleKeyCache<K1, K2, T> {
         line.lastAccessed = System.currentTimeMillis();
         return line.val;
     }
-    public User lookup (K2 id) {
+    public T lookup (K2 id) {
         Line<T> line = m_k2Map.get(id);
 
         if (line == null) return null;

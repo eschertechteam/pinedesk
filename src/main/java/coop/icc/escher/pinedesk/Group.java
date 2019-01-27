@@ -20,8 +20,8 @@ public class Group {
         return groups;
     }
 
-    public static List<Group> getMembership (User user) throws SQLException,
-                                                               NamingException {
+    public static List<Group> getByUser (User user) throws SQLException,
+                                                           NamingException {
         List<Group> groups = new ArrayList<Group>();
 
         try (Connection conn = Common.getConnection()) {
@@ -35,6 +35,44 @@ public class Group {
         }
 
         return groups;
+    }
+
+    public static Group lookup (String name) throws SQLException,
+                                                    NamingException,
+                                                    NoSuchGroupException {
+        try (Connection conn = Common.getConnection()) {
+            String sql = String.format(LOOKUP_BY_ATTR_SQL, "name");
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, name);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) return new Group (rs);
+                    else throw new NoSuchGroupException (name);
+                }
+            }
+        }
+
+        return new Group ();
+    }
+
+    public static Group lookup (long id) throws SQLException,
+                                                NamingException,
+                                                NoSuchGroupException {
+        try (Connection conn = Common.getConnection()) {
+            String sql = String.format(LOOKUP_BY_ATTR_SQL, "groupid");
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setLong(1, id);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) return new Group (rs);
+                    else throw new NoSuchGroupException (id);
+                }
+            }
+        }
+
+        return new Group ();
     }
 
     public static void add (Group group) throws SQLException,
@@ -287,8 +325,12 @@ public class Group {
 
     private static final String LOOKUP_ALL_SQL = 
         "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
-        + "u.email, u.passhash, u.google, u.firstname, u.lastname, u.room "
+        + "u.email, u.google, u.firstname, u.lastname, u.room "
         + "FROM groups g JOIN users u ON g.admin=u.userid ORDER BY g.groupid";
+    private static final String LOOKUP_BY_ATTR_SQL =
+        "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
+        + "u.email, u.google, u.firstname, u.lastname, u.room "
+        + "FROM groups g JOIN users u ON g.admin=u.userid WHERE g.%s=?";
     private static final String LOOKUP_BY_MEMBER_SQL =
         "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
         + "u.email, u.passhash, u.google, u.firstname, u.lastname, u.room "
