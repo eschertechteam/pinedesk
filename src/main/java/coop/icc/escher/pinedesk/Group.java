@@ -12,7 +12,12 @@ public class Group {
         try (Connection conn = Common.getConnection()) {
             try (Statement stmt = conn.createStatement()) {
                 try (ResultSet rs = stmt.executeQuery(LOOKUP_ALL_SQL)) {
-                    while (rs.next()) groups.add(new Group (rs));
+                    while (rs.next()) {
+                        if (s_groupCache.contains(rs.getLong("groupid")))
+                            groups.add(s_groupCache.lookup(rs.getLong("groupid")));
+                        else
+                            groups.add(new Group (rs));
+                    }
                 }
             }
         }
@@ -29,7 +34,12 @@ public class Group {
                 pstmt.setLong(1, user.getId());
 
                 try (ResultSet rs = pstmt.executeQuery()) {
-                    while (rs.next()) groups.add(new Group (rs));
+                    while (rs.next()) {
+                        if (s_groupCache.contains(rs.getLong("groupid")))
+                            groups.add(s_groupCache.lookup(rs.getLong("groupid")));
+                        else
+                            groups.add(new Group (rs));
+                    }
                 }
             }
         }
@@ -40,6 +50,9 @@ public class Group {
     public static Group lookup (String name) throws SQLException,
                                                     NamingException,
                                                     NoSuchGroupException {
+        if (s_groupCache.contains(name))
+            return s_groupCache.lookup(name);
+
         try (Connection conn = Common.getConnection()) {
             String sql = String.format(LOOKUP_BY_ATTR_SQL, "name");
 
@@ -59,6 +72,9 @@ public class Group {
     public static Group lookup (long id) throws SQLException,
                                                 NamingException,
                                                 NoSuchGroupException {
+        if (s_groupCache.contains(name))
+            return s_groupCache.lookup(name);
+
         try (Connection conn = Common.getConnection()) {
             String sql = String.format(LOOKUP_BY_ATTR_SQL, "groupid");
 
@@ -121,6 +137,8 @@ public class Group {
                 pstmt.executeBatch();
             }
         }
+
+        s_groupCache.insert(group.m_groupId, group.m_name, group);
     }
 
     private static User getUser (ResultSet rs) throws SQLException {
@@ -143,7 +161,7 @@ public class Group {
         m_members = new ArrayList<User> ();
     }
 
-    private Group (ResultSet rs) throws SQLException {
+    Group (ResultSet rs) throws SQLException {
         m_groupId = rs.getLong("groupid");
         m_name = rs.getString("name");
         m_longName = rs.getString("longname");
@@ -152,6 +170,8 @@ public class Group {
         m_exists = true;
 
         m_members = new ArrayList<User> ();
+
+        s_groupCache.insert(m_groupId, m_name, this);
     }
 
     public long getId () { return m_groupId; }
@@ -322,6 +342,8 @@ public class Group {
     private String m_description; 
     private long m_groupId;
     private boolean m_exists;
+
+    private static DoubleKeyCache<Long, String, Group> s_groupCache;
 
     private static final String LOOKUP_ALL_SQL = 
         "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
