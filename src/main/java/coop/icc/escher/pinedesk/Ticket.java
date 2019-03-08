@@ -38,13 +38,18 @@ public class Ticket {
             } catch (IOException ioe) {}
         }
 
-        long getId () { return m_attachId; }
-        String getFilePath () { return m_filepath; }
-        String getFileName () { return m_filepath.replaceAll("*.\\/+", ""); }
-        File open () { return File (m_filepath); }
-        void delete () throws SQLException, NamingException, IOException {
+
+        public long getId () { return m_attachId; }
+        public String getFilePath () { return m_filepath; }
+        public String getFileName () { 
+            return m_filepath.replaceAll("*.\\/+", "");
+        }
+        
+        public File open () { return File (m_filepath); }
+        public void delete () throws SQLException, NamingException,
+                                     IOException {
             try (Connection conn = Common.getConnection()) {
-                try (PreparedStatement pstmt = conn.prepareStatement(REMOVE_ATTACH)) {
+                try (PreparedStatement pstmt = conn.prepareStatement(Ticket.REMOVE_ATTACH)) {
                     pstmt.setLong(1, m_parent.m_ticketId);
                     pstmt.setLong(2, m_id);
 
@@ -59,6 +64,94 @@ public class Ticket {
         private Ticket m_parent;
         private long m_attachId;
         private String m_filepath;
+    }
+
+    public class Comment {
+        Comment (Ticket parent, User postedBy, LocalDateTime postDate,
+                 LocalDateTime editDate, String content, boolean statusChange,
+                 long id) {
+            m_parent = parent;
+            m_postedBy = postedBy;
+            m_postDate = postDate;
+            m_content = content;
+            m_statusChange = statusChange;
+            m_commentId = id;
+        }
+
+        public Ticket getParent () { return m_parent; }
+        public LocalDateTime getPostDate () { return m_postDate; }
+        public String getEditDate () { return m_editDate; }
+        public long getId () { return m_commentId; }
+        public User getPoster () { return m_postedBy; }
+        public boolean isStatusChange () { return m_statusChange; }
+
+        public String getContent () { return m_content; }
+        public void setContent (String content) throws SQLException,
+                                                       NamingException {
+            LocalDateTime newEditDate = LocalDateTime.now();
+
+            update("content", content);
+            update("editdate", Timestamp.valueOf(newEditDate));
+
+            m_content = content;
+            m_editDate = newEditDate;
+        }
+        
+        public void delete () throws SQLException, NamingException {
+            try (Connection conn = Common.getConnection()) {
+                try (PreparedStatement pstmt = conn.prepareStatement(Ticket.REMOVE_COMMENT)) {
+                    pstmt.setLong(1, m_parent.getId());
+                    pstmt.setLong(2, m_commentId);
+
+                    pstmt.executeUpdate();
+                }
+            }
+
+            m_parent = null;
+            m_postedBy = null;
+            m_content = "";
+            m_commentId = -1;
+            m_postDate = null;
+            m_editDate = null;
+        }
+
+        private void update (String key, String value) throws SQLException,
+                                                              NamingException {
+            String sql = String.format(Ticket.UPDATE_COMMENT, key);
+
+            try (Connection conn = Common.getConnection()) {
+                try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setString(1, value);
+                    pstmt.setLong(2, m_parent.getId());
+                    pstmt.setLong(3, m_commentId);
+
+                    pstmt.executeUpdate();
+                }
+            }
+        }
+
+        private void update (String key, Timestamp value) throws SQLException,
+                                                                 NamingException {
+            String sql = String.format(UPDATE_COMMENT, key);
+
+            try (Connection conn = Common.getConnection()) {
+                try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setTimestamp(1, value);
+                    pstmt.setLong(2, m_parent.getId());
+                    pstmt.setLong(3, m_commentId);
+
+                    pstmt.executeUpdate();
+                }
+            }
+        }
+
+        private Ticket m_parent;
+        private User m_postedBy;
+        private LocalDateTime m_postDate;
+        private LocalDateTime m_editDate;
+        private String m_content;
+        private long m_commentId;
+        private boolean m_statusChange;
     }
 
     public static Ticket lookup (long id) throws SQLException, NamingException {
@@ -230,7 +323,7 @@ public class Ticket {
         m_title = rs.getString("title");
         m_description = rs.getString("description");
         m_reporter = User.lookup(rs.getLong("reporter"));
-        m_reportDate = rs.getTimestamp("reportdate");
+        m_reportDate = rs.getTimestamp("reportdate").toLocalDateTime();
         m_group = Group.lookup(rs.getLong("group"));
         m_status = new Status (rs.getString("status"));
         m_global = rs.getBoolean("global");
@@ -335,7 +428,7 @@ public class Ticket {
                 pstmt.setLong(1, m_ticketId);
 
                 try (ResultSet rs = pstmt.executeQuery()) {
-                    if (rs.next())
+                    while (rs.next())
                         attachments.add(new Attachment (this, rs.getLong(1), rs.getString(2)));
                 }
             }
@@ -388,12 +481,96 @@ public class Ticket {
 
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next())
-                        return Attachment (this, rs.getLong(1), filepath);                
+                        return new Attachment (this, rs.getLong(1), filepath);                
                 }
             }
         }
 
         return null;
+    }
+
+    public List<Comment> getComments () throws SQLException, NamingException {
+        List<Comment> comments = new ArrayList<Comment>();
+
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_COMMENT_ALL)) {
+                pstmt.setLong(1, m_ticketId);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    while (rs.next()) {
+                        LocalDateTime postDate = rs.getTimestamp(2).toLocalDateTime();  
+                        LocalDateTime editDate = rs.getTimestamp(3).toLocalDateTime();
+                        boolean isStatus = rs.getBoolean(4);
+                        User postedBy = isStatus ? null : User.lookup(rs.getLong(5));
+
+                        comments.add(new Comment (this, postedBy, postDate,
+                                                  editDate, rs.getString(3),
+                                                  isStatus, rs.getLong(1)));
+                    }
+                }
+            }
+        }
+
+        return comments;
+    }
+
+    public Comment getComment (long id) throws SQLException, NamingException {
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_COMMENT_ID)) {
+                pstmt.setLong(1, m_ticketId);
+                pstmt.setLong(2, id);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) {
+                        LocalDateTime postDate = rs.getTimestamp(2).toLocalDateTime();
+                        LocalDateTime editDate = rs.getTimestamp(3).toLocalDateTime();
+                        boolean isStatus = rs.getBoolean(5);
+                        User postedBy = isStatus ? null : User.lookup(rs.getLong(6));
+
+                        return new Comment (this, postedBy, postDate, editDate,
+                                            rs.getString(4), isStatus,
+                                            rs.getLong(1));
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public Comment createComment (User postedBy, String content) throws SQLException,
+                                                                        NamingException {
+        LocalDateTime postDate = LocalDateTime.now();
+        Timestamp postTimestamp = Timestamp.valueOf(postDate);
+        boolean isStatus = (postedBy == null);
+
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(INSERT_COMMENT)) {
+                pstmt.setLong(1, m_ticketId);
+                pstmt.setTimestamp(2, postTimestamp);
+                pstmt.setTimestamp(3, postTimestamp);
+                pstmt.setString(4, content);
+                pstmt.setBoolean(5, isStatus);
+                
+                if (isStatus) pstmt.setNull(6);
+                else pstmt.setLong(6, postedBy.getId());
+
+                pstmt.executeUpdate();
+
+                try (ResultSet rs = pstmt.getGeneratedKeys()) {
+                    if (rs.next()) {
+                        return new Comment (this, postedBy, postDate, postDate,
+                                            content, isStatus, rs.getLong(1));
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public Comment createComment (String statusText) {
+        return createComment(null, statusText);
     }
 
     private void update (String key, String value) throws SQLException,
@@ -498,7 +675,7 @@ public class Ticket {
         + "(?,?,?,?,?,?,?,?,?)";
 
     private static final String LOOKUP_ATTACH_BASE =
-        "SELECT attachmentid, filepath FROM tattach a WHERE ticketid=?";
+        "SELECT attachmentid, filepath FROM tattach WHERE ticketid=?";
     private static final String LOOKUP_ATTACH_FILEPATH =
         LOOKUP_ATTACH_BASE + " AND filepath=?";
     private static final String LOOKUP_ATTACH_ID =
@@ -509,4 +686,19 @@ public class Ticket {
         "INSERT INTO tattach (ticketid, filepath) VALUES (?,?)";
     private static final String REMOVE_ATTACH =
         "DELETE FROM tattach WHERE ticketid=? AND attachmentid=?";
+
+    private static final String LOOKUP_COMMENT_BASE =
+        "SELECT commentid, postdate, editdate, content, statuschange, postedby "
+        + "FROM tcomments WHERE ticketid=? ";
+    private static final String LOOKUP_COMMENT_ID =
+        LOOKUP_COMMENT_BASE + " AND commentid=?";
+    private static final String LOOKUP_COMMENT_ALL =
+        LOOKUP_COMMENT_BASE + " ORDER BY postdate ASC";
+    private static final String INSERT_COMMENT =
+        "INSERT INTO tcomments (ticketid, postdate, editdate, content, "
+        "statuschange, postedby)  VALUES (?,?,?,?,?,?)";
+    private static final String REMOVE_COMMENT =
+        "DELETE FROM tcomments WHERE ticketid=? AND commentid=?";
+    private static final String UPDATE_COMMENT =
+        "UPDATE tcomments SET %s=? WHERE ticketid=? AND commentid=?";
 }
