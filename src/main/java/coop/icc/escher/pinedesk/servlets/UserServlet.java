@@ -44,7 +44,7 @@ public class UserServlet extends HttpServlet {
                     writer.writeObject(getUserInfo(user).build());
                 }
             } catch (NoSuchUserException nsue) {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                response.sendError(HttpServletResponse.SC_NOT_FOUND);
             } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
                 throw new ServletException (e);
             }
@@ -63,10 +63,10 @@ public class UserServlet extends HttpServlet {
                     if (!user.matches(EMAIL_PATTERN)) continue;
 
                     respArr.add(m_bldFactory.createObjectBuilder()
-                                    .add(user, userExists(email)));
+                                    .add(user, User.exists(email)));
                 }
 
-                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter()) {
+                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
                     writer.writeArray(respArr.build());
                 }
             } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
@@ -79,6 +79,21 @@ public class UserServlet extends HttpServlet {
                 response.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
+
+            try {
+                List<User> matches = User.matchPrefix(params.get("prefix")[0]);
+                JsonArrayBuilder respArr = m_bldFactory.createArrayBuilder();
+
+                for (User user : matches) respArr.add(getUserInfo(user, false));
+
+                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
+                    writer.writeArray(respArr.build());
+                }
+            } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
+                throw new ServletException (e);
+            }
+        default:
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
     }
 
@@ -86,27 +101,36 @@ public class UserServlet extends HttpServlet {
     protected void doPost (HttpServletRequest request,
                            HttpServletResponse response)
                            throws ServletException {
+        HttpSession session = request.getSession();
+        String path = request.getPathInfo();
+        Map<String,String[]> params = request.getParameterMap();
+        Long currentUser = (Long)session.getAttribute("user");
+
+        if (path == null) path = "";
+
+        switch (path) {
+        case "/new":
+
+            break;
+        case "/edit":
+            break;
+        }
     }
 
-    JsonObjectBuilder getUserInfo (User user) {
-        return m_bldFactory.createObjectBuilder()
+    JsonObjectBuilder getUserInfo (User user, boolean full) {
+        JsonObjectBuilder userInfo = m_bldFactory.createObjectBuilder()
             .add("id", user.getId())
             .add("email", user.getEmail())
             .add("firstName", user.getFirstName())
-            .add("lastName", user.getLastName())
-            .add("room", user.getRoom());
+            .add("lastName", user.getLastName());
+
+        if (full) userInfo.add("room", user.getRoom());
+
+        return userInfo;
     }
 
-    private boolean userExists (String email) throws SQLException, NamingException {
-        User user = null;
-
-        try {
-            user = User.lookup(email);
-        } catch (NoSuchUserException nsue) {
-            return false;
-        }
-
-        return true;
+    JsonObjectBuilder getUserInfo (User user) {
+        return getUserInfo (user, true);
     }
 
     private JsonBuilderFactory m_bldFactory;

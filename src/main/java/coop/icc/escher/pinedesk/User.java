@@ -53,8 +53,8 @@ public class User {
     }
     
     public static User lookup (long id) throws SQLException,
-                                                    NamingException,
-                                                    NoSuchUserException {
+                                               NamingException,
+                                               NoSuchUserException {
         if (s_userCache.contains(id))
             return s_userCache.lookup(id);
 
@@ -72,6 +72,32 @@ public class User {
         }
 
         return new User ();
+    }
+
+    public static List<User> matchPrefix (String prefix) throws SQLException,
+                                                                NamingException {
+        List<User> matches = new ArrayList<User>();
+
+        try (Connection conn = Common.getConnection()) {
+            try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_PREFIX_SQL)) {
+                prefix = prefix.replace("!", "!!").replace("%", "!%").replace("_","!_").replace("[","![") + '%';
+
+                pstmt.setString(1, prefix);
+                pstmt.setString(2, prefix);
+                pstmt.setString(3, prefix);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    while (rs.next()) {
+                        if (s_userCache.contains(rs.getLong(1)))
+                            matches.add(s_userCache.lookup(rs.getLong(1)));
+                        else
+                            matches.add(new User (rs));
+                    }
+                }
+            }
+        }
+
+        return matches;
     }
 
     public static void add (User newUser) throws SQLException,
@@ -285,9 +311,13 @@ public class User {
     //STATIC MEMBERS
     private static final String EXISTS_SQL =
         "SELECT COUNT(*) FROM users WHERE email=?";
+    private static final String LOOKUP_BASE_SQL =
+        "SELECT userid, email, google, firstname, lastname, room FROM users ";
     private static final String LOOKUP_SQL =
-        "SELECT userid, email, google, firstname, lastname, room "
-        + "FROM users WHERE %s=?";
+        LOOKUP_BASE_SQL + "WHERE %s=?";
+    private static final String LOOKUP_PREFIX_SQL =
+        LOOKUP_BASE_SQL + "WHERE (email ILIKE ? OR firstname ILIKE ? OR "
+        + "lastname ILIKE ?) COLLATE utf8_general_ci ORDER BY userid";
     private static final String READ_PASSHASH_SQL =
         "SELECT passhash FROM users WHERE userid=?";
     private static final String UPDATE_SQL =
