@@ -147,7 +147,9 @@ public class User {
         m_lastName = "";
         m_room = "";
         m_exists = false;
+        m_google = false;
     }
+
     User (ResultSet rs) throws SQLException {
         load(rs);
         s_userCache.insert(m_userId, m_email, this);
@@ -171,15 +173,17 @@ public class User {
         if (m_google) return false;
 
         PasswordVerifier verify = new PasswordVerifier ();
-        String passhash = "";
+        String passhash = m_exists ? m_passHash : "";
 
-        try (Connection conn = Common.getConnection()) {
-            try (PreparedStatement pstmt = conn.prepareStatement(READ_PASSHASH_SQL)) {
-                pstmt.setLong(1, m_userId);
+        if (m_exists) {
+            try (Connection conn = Common.getConnection()) {
+                try (PreparedStatement pstmt = conn.prepareStatement(READ_PASSHASH_SQL)) {
+                    pstmt.setLong(1, m_userId);
 
-                try (ResultSet rs = pstmt.executeQuery()) {
-                    if (rs.next()) passhash = rs.getString(1);
-                    else return false;
+                    try (ResultSet rs = pstmt.executeQuery()) {
+                        if (rs.next()) passhash = rs.getString(1);
+                        else return false;
+                    }
                 }
             }
         }

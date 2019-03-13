@@ -31,13 +31,13 @@ public class UserServlet extends HttpServlet {
         if (path == null) path = "";
 
         switch (path) {
-        case "/me":
-            if (currentUser == null) {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN);
-                return;
-            }
-
+        case "/me":         //Get user information *****************************
             try {
+                if (currentUser == null) {
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                    return;
+                }
+
                 User user = User.lookup(currentUser.longValue());
 
                 try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
@@ -50,13 +50,13 @@ public class UserServlet extends HttpServlet {
             }
             
             break;
-        case "/exists":
-            if (!params.containsKey("user")) {
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST);
-                return;
-            }
-
+        case "/exists":     //Check if user exists *****************************
             try {
+                if (!params.containsKey("user")) {
+                    response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+                    return;
+                }
+
                 JsonArrayBuilder respArr = m_bldFactory.createArrayBuilder();
                 
                 for (String email : params.get("user")) {
@@ -74,13 +74,13 @@ public class UserServlet extends HttpServlet {
             }
 
             break;
-        case "/matchPrefix":
-            if (currentUser == null) {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN);
-                return;
-            }
-
+        case "/matchPrefix":    //Find users matching prefix *******************
             try {
+                if (currentUser == null) {
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                    return;
+                }
+
                 List<User> matches = User.matchPrefix(params.get("prefix")[0]);
                 JsonArrayBuilder respArr = m_bldFactory.createArrayBuilder();
 
@@ -92,8 +92,22 @@ public class UserServlet extends HttpServlet {
             } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
                 throw new ServletException (e);
             }
-        default:
-            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+        case "/new":        //POST-only actions ********************************
+        case "/edit":
+        case "/login":
+        case "/logout":
+            try {
+                response.setHeader("Allow", "POST");
+                response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            } catch (IOException ioe) {
+                throw new ServletException (ioe);
+            }
+        default:            //Unknown resources ********************************
+            try {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            } catch (IOException ioe) {
+                throw new ServletException (ioe);
+            }
         }
     }
 
@@ -105,15 +119,75 @@ public class UserServlet extends HttpServlet {
         String path = request.getPathInfo();
         Map<String,String[]> params = request.getParameterMap();
         Long currentUser = (Long)session.getAttribute("user");
+        int sc = 404;
 
         if (path == null) path = "";
 
         switch (path) {
-        case "/new":
+        case "/new":        //New user *****************************************
+            sc = addUser(params);
+            break;
+        case "/edit":       //Edit existing user *******************************
+            if (currentUser == null) {
+                sc = HttpServletResponse.SC_FORBIDDEN;
+                break;
+            }
+
+            sc = editUser(params, currentUser.longValue());
+            break;
+        case "/login":      //Log in *******************************************
+            if (!(params.containsKey("email") && params.containsKey("verify"))) {
+                sc = HttpServletResponse.SC_BAD_REQUEST;
+                break;
+            }
+
+            currentUser = verifyUser(params.get("email"), params.get("verify"));
+
+            if (currentUser.longValue() == -1L) {
+                sc = HttpServletResponse.SC_FORBIDDEN;
+            } else {
+                session.setAttribute("user", currentUser);
+                sc = HttpServletResponse.SC_NO_CONTENT;
+            }
 
             break;
-        case "/edit":
+        case "/logout":     //Log out ******************************************
+            if (currentUser == null) {
+                sc = HttpServletResponse.SC_FORBIDDEN;
+                break;
+            }
+
+            session.removeAttribute("user");
+            sc = HttpServletResponse.SC_NO_CONTENT;
             break;
+        case "/me":         //GET-only actions *********************************
+        case "/exists":
+        case "/matchPrefix":
+            try {
+                response.setHeader("Allow", "GET");
+                response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            } catch (IOException ioe) {
+                throw new ServletException (ioe);
+            }
+
+            return;
+        default:            //Unknown resources ********************************
+            try {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            } catch (IOException ioe) {
+                throw new ServletException (ioe);
+            }
+            return;
+        }
+
+        try {
+            if (sc >= 300) response.sendError(sc);
+            else {
+                response.setStatus(sc);
+                response.getWriter().flush();   //commit empty response
+            }
+        } catch (IOError ioe) {
+            throw new ServletException (ioe);
         }
     }
 
@@ -131,6 +205,92 @@ public class UserServlet extends HttpServlet {
 
     JsonObjectBuilder getUserInfo (User user) {
         return getUserInfo (user, true);
+    }
+
+    long verifyUser (String email, String passwd) throws ServletException {
+        User user = null;
+
+        try {
+            user = User.lookup(email);
+
+            if (!user.verifyPassword(passwd))
+                user = null;
+        } catch (NoSuchUserException nsue) {
+            user = null;
+        } catch (SQLException | NamingException e) {
+            throw new ServletException (e);
+        }
+
+        return (user == null ? -1L : user.getId());
+    }
+
+    int addUser (Map<String,String[]> params) throws ServletException {
+        if (!(params.containsKey("email") && params.containsKey("passwd")
+              && params.containsKey("room"))
+            || !Common.isValidRoom(params.get("room"))) {
+            return HttpServletResponse.SC_BAD_REQUEST;
+        }
+
+        User newUser = new User ();
+
+        try {
+            newUser.setEmail(params.get("email"));
+            newUser.setPassword(params.get("password"));
+            newUser.setRoom(params.get("room"));
+
+            if (params.containsKey("firstName"))
+                newUser.setFirstName(params.get("firstName"));
+            if (params.containsKey("lastName"))
+                newUser.setLastName(params.get("lastName"));
+
+            User.add(newUser);
+        } catch (SQLException | NamingException e) {
+            throw new ServletException (e);
+        }
+
+        return HttpServletResponse.SC_NO_CONTENT;
+    }
+
+    int editUser (Map<String,String[]> params, long userid) throws ServletException {
+        User user = null;
+        ServletException except = null;
+
+        try {
+            user = User.lookup(userid);
+        } catch (SQLException | NamingException e) {
+            throw new ServletException (e);
+        }
+
+        try {
+            if (params.containsKey("room") && !Common.isValidRoom(params.get("room")))
+                return HttpServletResponse.SC_BAD_REQUEST;
+
+            //Setting sensitive data - require password verification
+            if ((params.containsKey("email") || params.containsKey("passwd")) &&
+                (!params.containsKey("verify") || !user.verifyPassword(params.get("verify"))) {
+                return HttpServletResponse.SC_FORBIDDEN;
+            }
+            
+            if (params.containsKey("firstName"))
+                user.setFirstName(params.get("firstName"));
+
+            if (params.containsKey("lastName"))
+                user.setLastName(params.get("lastName"));
+
+            if (params.containsKey("room"))
+                user.setRoom(params.get("room"));
+
+            if (params.containsKey("email"))
+                user.setEmail(params.get("email"));
+
+            if (params.containsKey("passwd"))
+                user.setPassword(params.get("passwd"));
+
+        } catch (SQLException | NamingException e) {
+            throw new ServletException (e);
+        }
+
+        return HttpServletResponse.SC_NO_CONTENT;
     }
 
     private JsonBuilderFactory m_bldFactory;
