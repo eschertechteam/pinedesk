@@ -9,16 +9,13 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.json.*;
 
+import java.util.Map;
+import java.util.List;
 import java.sql.SQLException;
 import javax.naming.NamingException;
 
 @WebServlet(name="UserServlet", urlPatterns={ "/api/user/*" })
-public class UserServlet extends HttpServlet {
-    UserServlet () {
-        m_bldFactory = Json.createBuilderFactory(null);
-        m_wrFactory = Json.createWriterFactory(null);
-    }
-
+public class UserServlet extends HttpJsonServlet {
     @Override
     protected void doGet (HttpServletRequest request,
                           HttpServletResponse response)
@@ -26,12 +23,10 @@ public class UserServlet extends HttpServlet {
         HttpSession session = request.getSession();
         Map<String,String[]> params = request.getParameterMap();
         String path = request.getPathInfo();
-        JsonObjectBuilder info = m_bldFactory.createObjectBuilder();
+        JsonObjectBuilder info = createObjectBuilder();
         Long currentUser = (Long)session.getAttribute("user");
 
         if (path == null) path = "";
-
-        response.setStatus(HttpServletResponse.SC_OK);
 
         switch (path) {
         case "/me":         //Get user information *****************************
@@ -43,15 +38,11 @@ public class UserServlet extends HttpServlet {
                 }
 
                 User user = User.lookup(currentUser.longValue());
-
-                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
-                    setJsonResponse(response);
-                    writer.writeObject(getUserInfo(user).build());
-                }
+                writeJson(response, getUserInfo(user).build());
             } catch (NoSuchUserException nsue) {
                 response.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 info.add("reason", "Invalid session -- current user does not exist");
-            } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
+            } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
             }
             
@@ -64,20 +55,17 @@ public class UserServlet extends HttpServlet {
                     return;
                 }
 
-                JsonArrayBuilder respArr = m_bldFactory.createArrayBuilder();
+                JsonArrayBuilder respArr = createArrayBuilder();
                 
                 for (String email : params.get("email")) {
                     if (!user.matches(EMAIL_PATTERN)) continue;
 
-                    respArr.add(m_bldFactory.createObjectBuilder()
+                    respArr.add(createObjectBuilder()
                                     .add(user, User.exists(email)));
                 }
 
-                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
-                    setJsonResponse(response);
-                    writer.writeArray(respArr.build());
-                }
-            } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
+                writeJson(response, respArr.build());
+            } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
             }
 
@@ -91,15 +79,12 @@ public class UserServlet extends HttpServlet {
                 }
 
                 List<User> matches = User.matchPrefix(params.get("prefix")[0]);
-                JsonArrayBuilder respArr = m_bldFactory.createArrayBuilder();
+                JsonArrayBuilder respArr = createArrayBuilder();
 
                 for (User user : matches) respArr.add(getUserInfo(user, false));
 
-                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
-                    setJsonResponse(response);
-                    writer.writeArray(respArr.build());
-                }
-            } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
+                writeJson(response, respArr.build());
+            } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
             }
         case "/new":        //POST-only actions ********************************
@@ -116,8 +101,7 @@ public class UserServlet extends HttpServlet {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
 
-        if (response.getStatus() != HttpServletResponse.SC_OK)
-            sendStatusMessage(response, info);
+        if (!response.isCommitted()) writeJson(response, info.build(), false);
     }
 
     @Override
@@ -127,7 +111,7 @@ public class UserServlet extends HttpServlet {
         HttpSession session = request.getSession();
         Map<String,String[]> params = request.getParameterMap();
         String path = request.getPathInfo();
-        JsonObjectBuilder info = m_bldFactory.createObjectBuilder();
+        JsonObjectBuilder info = createObjectBuilder();
         Long currentUser = (Long)session.getAttribute("user");
 
         if (path == null) path = "";
@@ -205,11 +189,11 @@ public class UserServlet extends HttpServlet {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
 
-        sendStatusMessage(response, info);
+        writeJson(response, info.build(), false);
     }
 
     JsonObjectBuilder getUserInfo (User user, boolean full) {
-        JsonObjectBuilder userInfo = m_bldFactory.createObjectBuilder()
+        JsonObjectBuilder userInfo = createObjectBuilder()
             .add("id", user.getId())
             .add("email", user.getEmail())
             .add("firstName", user.getFirstName())
@@ -311,33 +295,7 @@ public class UserServlet extends HttpServlet {
 
         return HttpServletResponse.SC_NO_CONTENT;
     }
-
-    private static void setJsonResponse (HttpServletResponse response) {
-        response.setHeader("Content-Type", "application/json; charset=utf-8");
-    }
-
-    private void sendStatusMessage (HttpServletResponse response,
-                                    JsonObjectBuilder info)
-                                   throws ServletException {
-        try {
-            JsonObject builtInfo = info.build();
-
-            if (response.getStatus() != HttpServletResponse.SC_NO_CONTENT || builtInfo.size() == 0) {
-                setJsonResponse(response);
-
-                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
-                    writer.writeObject(builtInfo);
-                }
-            }
-            else response.getWriter().flush();   //commit empty response
-        } catch (IOException | JsonException | IllegalStateException e) {
-            throw new ServletException (e);
-        }
-    }
-
-    private JsonBuilderFactory m_bldFactory;
-    private JsonWriterFactory m_wrFactory;
-
+    
     private static final String EMAIL_PATTERN =
         "[A-Za-z0-9!#$%&'*+-/=?^_`{|}~.]@[A-Za-z0-9.]";
 }
