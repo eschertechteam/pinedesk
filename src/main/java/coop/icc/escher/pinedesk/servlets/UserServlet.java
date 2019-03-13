@@ -24,27 +24,33 @@ public class UserServlet extends HttpServlet {
                           HttpServletResponse response)
                           throws ServletException {
         HttpSession session = request.getSession();
-        String path = request.getPathInfo();
         Map<String,String[]> params = request.getParameterMap();
+        String path = request.getPathInfo();
+        JsonObjectBuilder info = m_bldFactory.createObjectBuilder();
         Long currentUser = (Long)session.getAttribute("user");
 
         if (path == null) path = "";
+
+        response.setStatus(HttpServletResponse.SC_OK);
 
         switch (path) {
         case "/me":         //Get user information *****************************
             try {
                 if (currentUser == null) {
-                    response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    info.add("reason", "Must be logged in to access this resource");
                     return;
                 }
 
                 User user = User.lookup(currentUser.longValue());
 
                 try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
+                    setJsonResponse(response);
                     writer.writeObject(getUserInfo(user).build());
                 }
             } catch (NoSuchUserException nsue) {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND);
+                response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                info.add("reason", "Invalid session -- current user does not exist");
             } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
                 throw new ServletException (e);
             }
@@ -52,14 +58,15 @@ public class UserServlet extends HttpServlet {
             break;
         case "/exists":     //Check if user exists *****************************
             try {
-                if (!params.containsKey("user")) {
-                    response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+                if (!params.containsKey("email")) {
+                    response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    info.add("reason", "`email` parameter missing");
                     return;
                 }
 
                 JsonArrayBuilder respArr = m_bldFactory.createArrayBuilder();
                 
-                for (String email : params.get("user")) {
+                for (String email : params.get("email")) {
                     if (!user.matches(EMAIL_PATTERN)) continue;
 
                     respArr.add(m_bldFactory.createObjectBuilder()
@@ -67,6 +74,7 @@ public class UserServlet extends HttpServlet {
                 }
 
                 try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
+                    setJsonResponse(response);
                     writer.writeArray(respArr.build());
                 }
             } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
@@ -78,6 +86,7 @@ public class UserServlet extends HttpServlet {
             try {
                 if (currentUser == null) {
                     response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                    info.add("reason", "Must be logged in to access this resource");
                     return;
                 }
 
@@ -87,6 +96,7 @@ public class UserServlet extends HttpServlet {
                 for (User user : matches) respArr.add(getUserInfo(user, false));
 
                 try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
+                    setJsonResponse(response);
                     writer.writeArray(respArr.build());
                 }
             } catch (IOException | SQLException | NamingException | JsonException | IllegalStateException e) {
@@ -98,17 +108,16 @@ public class UserServlet extends HttpServlet {
         case "/logout":
             try {
                 response.setHeader("Allow", "POST");
-                response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             } catch (IOException ioe) {
                 throw new ServletException (ioe);
             }
         default:            //Unknown resources ********************************
-            try {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND);
-            } catch (IOException ioe) {
-                throw new ServletException (ioe);
-            }
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
+
+        if (response.getStatus() != HttpServletResponse.SC_OK)
+            sendStatusMessage(response, info);
     }
 
     @Override
@@ -116,79 +125,87 @@ public class UserServlet extends HttpServlet {
                            HttpServletResponse response)
                            throws ServletException {
         HttpSession session = request.getSession();
-        String path = request.getPathInfo();
         Map<String,String[]> params = request.getParameterMap();
+        String path = request.getPathInfo();
+        JsonObjectBuilder info = m_bldFactory.createObjectBuilder();
         Long currentUser = (Long)session.getAttribute("user");
-        int sc = 404;
 
         if (path == null) path = "";
 
         switch (path) {
         case "/new":        //New user *****************************************
-            sc = addUser(params);
+            response.setStatus(addUser(params));
+
+            switch (response.getStatus()) {
+            case HttpServletResponse.SC_CONFLICT:
+                info.add("reason", "User exists");
+                break;
+            case HttpServletResponse.SC_BAD_REQUEST:
+                info.add("reason", "Invalid room number");
+                break;
+            }
             break;
         case "/edit":       //Edit existing user *******************************
             if (currentUser == null) {
-                sc = HttpServletResponse.SC_FORBIDDEN;
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                info.add("reason", "Must be logged in");
                 break;
             }
 
-            sc = editUser(params, currentUser.longValue());
+            response.setStatus(editUser(params, currentUser.longValue()));
+
+            switch (response.getStatus()) {
+            case HttpServletResponse.SC_FORBIDDEN:
+                info.add("reason", "Invalid or missing verification password");
+                break;
+            case HttpServletResponse.SC_BAD_REQUEST:
+                info.add("reason", "Invalid room number");
+                break;
+            }
             break;
         case "/login":      //Log in *******************************************
             if (!(params.containsKey("email") && params.containsKey("verify"))) {
-                sc = HttpServletResponse.SC_BAD_REQUEST;
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                info.add("reason", "Missing email or verification password");
+
+                if (params.containsKey("passwd"))
+                    info.add("extra", "Use the `verify` parameter instead of `passwd`");
                 break;
             }
 
             currentUser = verifyUser(params.get("email"), params.get("verify"));
 
             if (currentUser.longValue() == -1L) {
-                sc = HttpServletResponse.SC_FORBIDDEN;
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                info.add("reason", "Incorrect email or password");
             } else {
                 session.setAttribute("user", currentUser);
-                sc = HttpServletResponse.SC_NO_CONTENT;
+                response.setStatus(HttpServletResponse.SC_NO_CONTENT);
             }
 
             break;
         case "/logout":     //Log out ******************************************
             if (currentUser == null) {
-                sc = HttpServletResponse.SC_FORBIDDEN;
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                info.add("reason", "Must be logged in");
                 break;
             }
 
             session.removeAttribute("user");
-            sc = HttpServletResponse.SC_NO_CONTENT;
+            response.setStatus(HttpServletResponse.SC_NO_CONTENT);
             break;
         case "/me":         //GET-only actions *********************************
         case "/exists":
         case "/matchPrefix":
-            try {
-                response.setHeader("Allow", "GET");
-                response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
-            } catch (IOException ioe) {
-                throw new ServletException (ioe);
-            }
+            response.setHeader("Allow", "GET");
+            response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
 
-            return;
+            break;
         default:            //Unknown resources ********************************
-            try {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND);
-            } catch (IOException ioe) {
-                throw new ServletException (ioe);
-            }
-            return;
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
 
-        try {
-            if (sc >= 300) response.sendError(sc);
-            else {
-                response.setStatus(sc);
-                response.getWriter().flush();   //commit empty response
-            }
-        } catch (IOError ioe) {
-            throw new ServletException (ioe);
-        }
+        sendStatusMessage(response, info);
     }
 
     JsonObjectBuilder getUserInfo (User user, boolean full) {
@@ -246,6 +263,8 @@ public class UserServlet extends HttpServlet {
             User.add(newUser);
         } catch (SQLException | NamingException e) {
             throw new ServletException (e);
+        } catch (UserExistsException uee) {
+            return HttpServletResponse.SC_CONFLICT;
         }
 
         return HttpServletResponse.SC_NO_CONTENT;
@@ -291,6 +310,29 @@ public class UserServlet extends HttpServlet {
         }
 
         return HttpServletResponse.SC_NO_CONTENT;
+    }
+
+    private static void setJsonResponse (HttpServletResponse response) {
+        response.setHeader("Content-Type", "application/json; charset=utf-8");
+    }
+
+    private void sendStatusMessage (HttpServletResponse response,
+                                    JsonObjectBuilder info)
+                                   throws ServletException {
+        try {
+            JsonObject builtInfo = info.build();
+
+            if (response.getStatus() != HttpServletResponse.SC_NO_CONTENT || builtInfo.size() == 0) {
+                setJsonResponse(response);
+
+                try (JsonWriter writer = m_wrFactory.createWriter(response.getWriter())) {
+                    writer.writeObject(builtInfo);
+                }
+            }
+            else response.getWriter().flush();   //commit empty response
+        } catch (IOException | JsonException | IllegalStateException e) {
+            throw new ServletException (e);
+        }
     }
 
     private JsonBuilderFactory m_bldFactory;
