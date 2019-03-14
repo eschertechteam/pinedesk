@@ -57,6 +57,12 @@ public class GroupsServlet extends HttpServlet {
             case "members":
                 queryMembers(resp, pathElements[0], info);
                 break;
+            case "add":
+            case "remove":
+            case "edit":
+                resp.setHeader("Allow", "POST");
+                resp.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                break;
             default:
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 info.add("reason", "The action `" + pathElements[1] + "` is not supported.");

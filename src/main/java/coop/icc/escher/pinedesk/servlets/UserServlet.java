@@ -36,7 +36,7 @@ public class UserServlet extends HttpServlet {
                     return;
                 }
 
-                ServletUtils.writeJson(resp, getUserInfo(user).build());
+                ServletUtils.writeJson(resp, user.jsonify().build());
             } catch (NoSuchUserException nsue) {
                 resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 info.add("reason", "Invalid session -- current user does not exist");
@@ -79,23 +79,20 @@ public class UserServlet extends HttpServlet {
                 List<User> matches = User.matchPrefix(params.get("prefix")[0]);
                 JsonArrayBuilder respArr = Common.createArrayBuilder();
 
-                for (User match : matches)
-                    respArr.add(getUserInfo(match, false));
+                for (User match : matches) respArr.add(match.jsonify(false));
 
                 ServletUtils.writeJson(resp, respArr.build());
             } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
             }
+            break;
         case "/new":        //POST-only actions ********************************
         case "/edit":
         case "/login":
         case "/logout":
-            try {
-                resp.setHeader("Allow", "POST");
-                resp.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
-            } catch (IOException ioe) {
-                throw new ServletException (ioe);
-            }
+            resp.setHeader("Allow", "POST");
+            resp.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            break;
         default:            //Unknown resources ********************************
             resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
@@ -191,22 +188,6 @@ public class UserServlet extends HttpServlet {
         }
 
         writeJson(resp, info.build(), false);
-    }
-
-    JsonObjectBuilder getUserInfo (User user, boolean full) {
-        JsonObjectBuilder userInfo = Common.createObjectBuilder()
-            .add("id", user.getId())
-            .add("email", user.getEmail())
-            .add("firstName", user.getFirstName())
-            .add("lastName", user.getLastName());
-
-        if (full) userInfo.add("room", user.getRoom());
-
-        return userInfo;
-    }
-
-    JsonObjectBuilder getUserInfo (User user) {
-        return getUserInfo (user, true);
     }
 
     long verifyUser (String email, String passwd) throws ServletException {
