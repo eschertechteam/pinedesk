@@ -7,6 +7,7 @@ import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import javax.json.*;
 
 import java.util.Map;
@@ -15,32 +16,29 @@ import java.sql.SQLException;
 import javax.naming.NamingException;
 
 @WebServlet(name="UserServlet", urlPatterns={ "/api/user/*" })
-public class UserServlet extends HttpJsonServlet {
+public class UserServlet extends HttpServlet {
     @Override
-    protected void doGet (HttpServletRequest request,
-                          HttpServletResponse response)
-                          throws ServletException {
-        HttpSession session = request.getSession();
-        Map<String,String[]> params = request.getParameterMap();
-        String path = request.getPathInfo();
-        JsonObjectBuilder info = createObjectBuilder();
-        Long currentUser = (Long)session.getAttribute("user");
+    protected void doGet (HttpServletRequest req, HttpServletResponse resp)
+                         throws ServletException {
+        Map<String,String[]> params = req.getParameterMap();
+        String path = req.getPathInfo();
+        JsonObjectBuilder info = ServletUtils.createObjectBuilder();
+        User user = ServletUtils.getActiveUser(req.getSession());
 
         if (path == null) path = "";
 
         switch (path) {
         case "/me":         //Get user information *****************************
             try {
-                if (currentUser == null) {
-                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                if (user == null) {
+                    resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     info.add("reason", "Must be logged in to access this resource");
                     return;
                 }
 
-                User user = User.lookup(currentUser.longValue());
-                writeJson(response, getUserInfo(user).build());
+                ServletUtils.writeJson(resp, getUserInfo(user).build());
             } catch (NoSuchUserException nsue) {
-                response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 info.add("reason", "Invalid session -- current user does not exist");
             } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
@@ -50,7 +48,7 @@ public class UserServlet extends HttpJsonServlet {
         case "/exists":     //Check if user exists *****************************
             try {
                 if (!params.containsKey("email")) {
-                    response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
                     info.add("reason", "`email` parameter missing");
                     return;
                 }
@@ -61,10 +59,10 @@ public class UserServlet extends HttpJsonServlet {
                     if (!user.matches(EMAIL_PATTERN)) continue;
 
                     respArr.add(createObjectBuilder()
-                                    .add(user, User.exists(email)));
+                                    .add(email, User.exists(email)));
                 }
 
-                writeJson(response, respArr.build());
+                ServletUtils.writeJson(resp, respArr.build());
             } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
             }
@@ -72,8 +70,8 @@ public class UserServlet extends HttpJsonServlet {
             break;
         case "/matchPrefix":    //Find users matching prefix *******************
             try {
-                if (currentUser == null) {
-                    response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                if (user == null) {
+                    resp.sendError(HttpServletResponse.SC_FORBIDDEN);
                     info.add("reason", "Must be logged in to access this resource");
                     return;
                 }
@@ -81,9 +79,10 @@ public class UserServlet extends HttpJsonServlet {
                 List<User> matches = User.matchPrefix(params.get("prefix")[0]);
                 JsonArrayBuilder respArr = createArrayBuilder();
 
-                for (User user : matches) respArr.add(getUserInfo(user, false));
+                for (User match : matches)
+                    respArr.add(getUserInfo(match, false));
 
-                writeJson(response, respArr.build());
+                ServletUtils.writeJson(resp, respArr.build());
             } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
             }
@@ -92,35 +91,35 @@ public class UserServlet extends HttpJsonServlet {
         case "/login":
         case "/logout":
             try {
-                response.setHeader("Allow", "POST");
-                response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                resp.setHeader("Allow", "POST");
+                resp.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             } catch (IOException ioe) {
                 throw new ServletException (ioe);
             }
         default:            //Unknown resources ********************************
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
 
-        if (!response.isCommitted()) writeJson(response, info.build(), false);
+        if (!resp.isCommitted())
+            ServletUtils.writeJson(resp, info.build(), false);
     }
 
     @Override
-    protected void doPost (HttpServletRequest request,
-                           HttpServletResponse response)
-                           throws ServletException {
-        HttpSession session = request.getSession();
-        Map<String,String[]> params = request.getParameterMap();
-        String path = request.getPathInfo();
+    protected void doPost (HttpServletRequest req, HttpServletResponse resp)
+                          throws ServletException {
+        HttpSession session = req.getSession();
+        Map<String,String[]> params = req.getParameterMap();
+        String path = req.getPathInfo();
         JsonObjectBuilder info = createObjectBuilder();
-        Long currentUser = (Long)session.getAttribute("user");
+        User user = ServletUtils.getActiveUser(session);
 
         if (path == null) path = "";
 
         switch (path) {
         case "/new":        //New user *****************************************
-            response.setStatus(addUser(params));
+            resp.setStatus(addUser(params));
 
-            switch (response.getStatus()) {
+            switch (resp.getStatus()) {
             case HttpServletResponse.SC_CONFLICT:
                 info.add("reason", "User exists");
                 break;
@@ -130,15 +129,15 @@ public class UserServlet extends HttpJsonServlet {
             }
             break;
         case "/edit":       //Edit existing user *******************************
-            if (currentUser == null) {
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            if (user == null) {
+                resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 info.add("reason", "Must be logged in");
                 break;
             }
 
-            response.setStatus(editUser(params, currentUser.longValue()));
+            resp.setStatus(editUser(params, user.longValue()));
 
-            switch (response.getStatus()) {
+            switch (resp.getStatus()) {
             case HttpServletResponse.SC_FORBIDDEN:
                 info.add("reason", "Invalid or missing verification password");
                 break;
@@ -149,7 +148,7 @@ public class UserServlet extends HttpJsonServlet {
             break;
         case "/login":      //Log in *******************************************
             if (!(params.containsKey("email") && params.containsKey("verify"))) {
-                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
                 info.add("reason", "Missing email or verification password");
 
                 if (params.containsKey("passwd"))
@@ -157,43 +156,45 @@ public class UserServlet extends HttpJsonServlet {
                 break;
             }
 
-            currentUser = verifyUser(params.get("email"), params.get("verify"));
+            {
+                long userId = verifyUser(params.get("email"), params.get("verify"));
 
-            if (currentUser.longValue() == -1L) {
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                info.add("reason", "Incorrect email or password");
-            } else {
-                session.setAttribute("user", currentUser);
-                response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+                if (user == -1L) {
+                    resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    info.add("reason", "Incorrect email or password");
+                } else {
+                    session.setAttribute("user", userId);
+                    resp.setStatus(HttpServletResponse.SC_NO_CONTENT);
+                }
             }
 
             break;
         case "/logout":     //Log out ******************************************
-            if (currentUser == null) {
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            if (user == null) {
+                resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 info.add("reason", "Must be logged in");
                 break;
             }
 
             session.removeAttribute("user");
-            response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+            resp.setStatus(HttpServletResponse.SC_NO_CONTENT);
             break;
         case "/me":         //GET-only actions *********************************
         case "/exists":
         case "/matchPrefix":
-            response.setHeader("Allow", "GET");
-            response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            resp.setHeader("Allow", "GET");
+            resp.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
 
             break;
         default:            //Unknown resources ********************************
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
 
-        writeJson(response, info.build(), false);
+        writeJson(resp, info.build(), false);
     }
 
     JsonObjectBuilder getUserInfo (User user, boolean full) {
-        JsonObjectBuilder userInfo = createObjectBuilder()
+        JsonObjectBuilder userInfo = ServletUtils.createObjectBuilder()
             .add("id", user.getId())
             .add("email", user.getEmail())
             .add("firstName", user.getFirstName())

@@ -1,17 +1,35 @@
 package coop.icc.escher.pinedesk.servlets;
 
+import coop.icc.escher.pinedesk.*;
+
 import javax.json.*;
-import javax.servlet.http.HttpServlet;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
-public class HttpJsonServlet extends HttpServlet {
+class ServletUtils {
     static {
         s_bldFactory = Json.createBuilderFactory(null);
-        s_wrFactory = Json.createWriterFactory(null)
+        s_wrFactory = Json.createWriterFactory(null);
     }
 
-    protected void writeJson (HttpServletResponse resp, JsonObject obj,
+    static User getActiveUser (HttpSession session) {
+        Long userId = (Long)session.getAttribute("user");
+        User user = null;
+
+        if (userId != null) {
+            try {
+                user = User.lookup(userId.longValue());
+            } catch (SQLException | NamingException e) {
+                throw new ServletException (e);
+            }
+        }
+
+        return user;
+    }
+
+    static void writeJson (HttpServletResponse resp, JsonObject obj,
                               boolean sendEmptyJson) throws ServletException {
         if (obj == null)
             obj = s_bldFactory.createObjectBuilder().build();
@@ -32,7 +50,7 @@ public class HttpJsonServlet extends HttpServlet {
         }
     }
 
-    protected void writeJson (HttpServletResponse resp, JsonArray arr,
+    static void writeJson (HttpServletResponse resp, JsonArray arr,
                               boolean sendEmptyJson) throws ServletException {
         if (arr == null)
             arr = s_bldFactory.createArrayBuilder().build();
@@ -53,28 +71,28 @@ public class HttpJsonServlet extends HttpServlet {
         }
     }
 
-    protected void writeJson (HttpServletResponse resp, JsonObject obj)
+    static void writeJson (HttpServletResponse resp, JsonObject obj)
                              throws ServletException {
         writeJson(resp, obj, true);
     }
 
-    protected void writeJson (HttpServletResponse resp, JsonArray arr)
+    static void writeJson (HttpServletResponse resp, JsonArray arr)
                              throws ServletException {
         writeJson(resp, arr, true);
     }
 
-    protected JsonObjectBuilder createObjectBuilder () {
+    static JsonObjectBuilder createObjectBuilder () {
         return s_bldFactory.createObjectBuilder();
     }
 
-    protected JsonArrayBuilder createArrayBuilder () {
+    static JsonArrayBuilder createArrayBuilder () {
         return s_bldFactory.createArrayBuilder();
     }
 
     private static void setJsonResponse (HttpServletResponse response) {
         response.setHeader("Content-Type", "application/json; charset=utf-8");
     }
-
+    
     private static JsonBuilderFactory s_bldFactory;
     private static JsonWriterFactory s_wrFactory;
 }
