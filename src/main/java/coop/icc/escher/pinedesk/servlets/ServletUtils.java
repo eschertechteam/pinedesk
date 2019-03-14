@@ -10,10 +10,9 @@ import java.io.IOException;
 
 class ServletUtils {
     static {
-        s_bldFactory = Json.createBuilderFactory(null);
         s_wrFactory = Json.createWriterFactory(null);
     }
-
+    
     static User getActiveUser (HttpSession session) {
         Long userId = (Long)session.getAttribute("user");
         User user = null;
@@ -32,7 +31,7 @@ class ServletUtils {
     static void writeJson (HttpServletResponse resp, JsonObject obj,
                               boolean sendEmptyJson) throws ServletException {
         if (obj == null)
-            obj = s_bldFactory.createObjectBuilder().build();
+            obj = Common.createObjectBuilder().build();
 
         try {
             if (response.getStatus() != HttpServletResponse.SC_NO_CONTENT
@@ -53,7 +52,7 @@ class ServletUtils {
     static void writeJson (HttpServletResponse resp, JsonArray arr,
                               boolean sendEmptyJson) throws ServletException {
         if (arr == null)
-            arr = s_bldFactory.createArrayBuilder().build();
+            arr = Common.createArrayBuilder().build();
 
         try {
             if (response.getStatus() != HttpServletResponse.SC_NO_CONTENT
@@ -81,18 +80,9 @@ class ServletUtils {
         writeJson(resp, arr, true);
     }
 
-    static JsonObjectBuilder createObjectBuilder () {
-        return s_bldFactory.createObjectBuilder();
-    }
-
-    static JsonArrayBuilder createArrayBuilder () {
-        return s_bldFactory.createArrayBuilder();
-    }
-
     private static void setJsonResponse (HttpServletResponse response) {
         response.setHeader("Content-Type", "application/json; charset=utf-8");
     }
     
-    private static JsonBuilderFactory s_bldFactory;
     private static JsonWriterFactory s_wrFactory;
 }

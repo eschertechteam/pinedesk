@@ -240,6 +240,23 @@ public class User {
 
     public List<Group> getGroups () { return Group.getByUser(this); }
 
+    public JsonObjectBuilder jsonify (boolean full) throws SQLException,
+                                                           NamingException {
+        JsonObjectBuilder jUser = Common.createObjectBuilder()
+            .add("id", m_userId)
+            .add("email", m_email)
+            .add("firstName", m_firstName)
+            .add("lastName", m_lastName);
+
+        if (full) jUser.add("room", m_room);
+
+        return jUser;
+    }
+
+    public JsonObjectBuilder jsonify () throws SQLException, NamingException {
+        return jsonify(true);
+    }
+
     //PUBLIC HELPER FUNCTIONS
     public void reload () throws SQLException, NamingException {
         try (Connection conn = Common.getConnection()) {

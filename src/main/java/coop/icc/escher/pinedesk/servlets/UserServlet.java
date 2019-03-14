@@ -22,7 +22,7 @@ public class UserServlet extends HttpServlet {
                          throws ServletException {
         Map<String,String[]> params = req.getParameterMap();
         String path = req.getPathInfo();
-        JsonObjectBuilder info = ServletUtils.createObjectBuilder();
+        JsonObjectBuilder info = Common.createObjectBuilder();
         User user = ServletUtils.getActiveUser(req.getSession());
 
         if (path == null) path = "";
@@ -53,7 +53,7 @@ public class UserServlet extends HttpServlet {
                     return;
                 }
 
-                JsonArrayBuilder respArr = createArrayBuilder();
+                JsonArrayBuilder respArr = Common.createArrayBuilder();
                 
                 for (String email : params.get("email")) {
                     if (!user.matches(EMAIL_PATTERN)) continue;
@@ -77,7 +77,7 @@ public class UserServlet extends HttpServlet {
                 }
 
                 List<User> matches = User.matchPrefix(params.get("prefix")[0]);
-                JsonArrayBuilder respArr = createArrayBuilder();
+                JsonArrayBuilder respArr = Common.createArrayBuilder();
 
                 for (User match : matches)
                     respArr.add(getUserInfo(match, false));
@@ -110,7 +110,7 @@ public class UserServlet extends HttpServlet {
         HttpSession session = req.getSession();
         Map<String,String[]> params = req.getParameterMap();
         String path = req.getPathInfo();
-        JsonObjectBuilder info = createObjectBuilder();
+        JsonObjectBuilder info = Common.createObjectBuilder();
         User user = ServletUtils.getActiveUser(session);
 
         if (path == null) path = "";
@@ -194,7 +194,7 @@ public class UserServlet extends HttpServlet {
     }
 
     JsonObjectBuilder getUserInfo (User user, boolean full) {
-        JsonObjectBuilder userInfo = ServletUtils.createObjectBuilder()
+        JsonObjectBuilder userInfo = Common.createObjectBuilder()
             .add("id", user.getId())
             .add("email", user.getEmail())
             .add("firstName", user.getFirstName())

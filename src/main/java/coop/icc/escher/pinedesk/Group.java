@@ -3,6 +3,7 @@ package coop.icc.escher.pinedesk;
 import java.sql.*;
 import javax.sql.*;
 import java.util.*;
+import javax.json.*;
 
 public class Group {
     //STATIC LOOKUP/CREATE METHODS
@@ -186,7 +187,7 @@ public class Group {
         return false;
     }
 
-    public List<User> getMember () {
+    public List<User> getMembers () {
         if (m_exists && m_members.length() == 0) updateMembers();
 
         return Collections.unmodifiableList(m_members);
@@ -290,6 +291,34 @@ public class Group {
         if (m_exists) update("description", description);
 
         m_description = description;
+    }
+
+    public JsonObjectBuilder jsonify (boolean withMembers) throws SQLException,
+                                                                  NamingException {
+        if (!m_exists) return null;
+
+        JsonObjectBuilder jGroup = Common.createObjectBuilder()
+            .add("id", m_groupId)
+            .add("name", m_name)
+            .add("longName", m_longName)
+            .add("description", m_description)
+            .add("admin", m_admin.jsonify(false));
+
+        if (withMembers) {
+            if (m_members.size() == 0) updateMembers();
+
+            JsonArrayBuilder jMembers = Common.createArrayBuilder();
+
+            for (User member : m_members) jMembers.add(member.jsonify(false));
+
+            jGroup.add("members", jMembers);
+        }
+
+        return jGroup;
+    }
+
+    public JsonObjectBuilder jsonify () throws SQLException, NamingException {
+        return jsonify(false)l
     }
 
     private void update (String key, long value) throws SQLException,
