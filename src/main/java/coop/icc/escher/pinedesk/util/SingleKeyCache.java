@@ -26,7 +26,7 @@ public class SingleKeyCache<K, T> {
     }
 
     public T lookup (K key) { 
-        Line<T> line = m_map.get(email);
+        Line<T> line = m_map.get(key);
 
         if (line == null) return null;
 
@@ -46,7 +46,7 @@ public class SingleKeyCache<K, T> {
 
         if (m_map.size() == m_capacity) evictOldest();
 
-        m_map.set(key, line);
+        m_map.put(key, line);
     }
 
     private void evictOldest () {
@@ -67,6 +67,6 @@ public class SingleKeyCache<K, T> {
     private Map<K, Line<T>> m_map;
     private int m_capacity;
     
-    private static final double HASH_LOAD_FACTOR = 0.75;
+    private static final float HASH_LOAD_FACTOR = 0.75f;
     private static final int DEFAULT_CACHE_CAPACITY = 128;
 }

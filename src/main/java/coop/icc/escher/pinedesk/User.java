@@ -3,6 +3,8 @@ package coop.icc.escher.pinedesk;
 import java.sql.*;
 import javax.sql.*;
 import java.util.*;
+import javax.json.JsonObjectBuilder;
+import javax.naming.NamingException;
 import coop.icc.escher.pinedesk.util.DoubleKeyCache;
 
 public class User {
@@ -23,18 +25,18 @@ public class User {
     }
 
     public static boolean inCache (String email) {
-        return s_userCache.contains(email);
+        return s_userCache.containsK2(email);
     }
 
     public static boolean inCache (long id) {
-        return s_userCache.contains(id);
+        return s_userCache.containsK1(id);
     }
 
     public static User lookup (String email) throws SQLException,
                                                     NamingException,
                                                     NoSuchUserException {
-        if (s_userCache.contains(email))
-            return s_userCache.lookup(email);
+        if (s_userCache.containsK2(email))
+            return s_userCache.lookupK2(email);
 
         try (Connection conn = Common.getConnection()) {
             String sql = String.format(LOOKUP_SQL, "email");
@@ -44,19 +46,17 @@ public class User {
 
                 try (ResultSet rs = pstmt.executeQuery()) {
                     if (rs.next()) return new User (rs);
-                    else throw new NoSuchUserException (email);
+                    else throw NoSuchUserException.forUserLookup(email);
                 }
             }
         }
-
-        return new User ();
     }
     
     public static User lookup (long id) throws SQLException,
                                                NamingException,
                                                NoSuchUserException {
-        if (s_userCache.contains(id))
-            return s_userCache.lookup(id);
+        if (s_userCache.containsK1(id))
+            return s_userCache.lookupK1(id);
 
         try (Connection conn = Common.getConnection()) {
             String sql = String.format(LOOKUP_SQL, "userid");
@@ -66,12 +66,10 @@ public class User {
 
                 try (ResultSet rs = pstmt.executeQuery()) {
                     if (rs.next()) return new User (rs);
-                    else throw new NoSuchUserException (email);
+                    else throw NoSuchUserException.forUserLookup(id);
                 }
             }
         }
-
-        return new User ();
     }
 
     public static List<User> matchPrefix (String prefix) throws SQLException,
@@ -88,8 +86,8 @@ public class User {
 
                 try (ResultSet rs = pstmt.executeQuery()) {
                     while (rs.next()) {
-                        if (s_userCache.contains(rs.getLong(1)))
-                            matches.add(s_userCache.lookup(rs.getLong(1)));
+                        if (s_userCache.containsK1(rs.getLong(1)))
+                            matches.add(s_userCache.lookupK1(rs.getLong(1)));
                         else
                             matches.add(new User (rs));
                     }
@@ -103,11 +101,11 @@ public class User {
     public static void add (User newUser) throws SQLException,
                                                  NamingException,
                                                  UserExistsException {
-        if (m_room.equals("")) 
+        if (newUser.m_room.equals("")) 
             throw new IllegalArgumentException ("User room number not set.");
-        if (m_email.equals(""))
+        if (newUser.m_email.equals(""))
             throw new IllegalArgumentException ("User email not set.");
-        if (!m_google && m_passHash.equals(""))
+        if (!newUser.m_google && newUser.m_passHash.equals(""))
             throw new IllegalArgumentException ("User password not set.");
 
         try (Connection conn = Common.getConnection()) {
@@ -133,7 +131,7 @@ public class User {
                     if (sqle.getErrorCode() == 1169)
                         throw new UserExistsException(newUser.m_email, sqle);
                     else
-                        throw e;
+                        throw sqle;
                 }
             }
         }
@@ -161,7 +159,7 @@ public class User {
     public long getId () { return m_userId; }
 
     public String getEmail () { return m_email; }
-    public void setEmail (String newEmail) throws SQLExcpetion,
+    public void setEmail (String newEmail) throws SQLException,
                                                   NamingException {
         if (m_exists) update("email", newEmail);
 
@@ -238,10 +236,11 @@ public class User {
         if (m_google) m_passHash = "";
     }
 
-    public List<Group> getGroups () { return Group.getByUser(this); }
+    public List<Group> getGroups () throws SQLException, NamingException {
+        return Group.getByUser(this);
+    }
 
-    public JsonObjectBuilder jsonify (boolean full) throws SQLException,
-                                                           NamingException {
+    public JsonObjectBuilder jsonify (boolean full) {
         JsonObjectBuilder jUser = Common.createObjectBuilder()
             .add("id", m_userId)
             .add("email", m_email)
@@ -253,7 +252,7 @@ public class User {
         return jUser;
     }
 
-    public JsonObjectBuilder jsonify () throws SQLException, NamingException {
+    public JsonObjectBuilder jsonify () {
         return jsonify(true);
     }
 
@@ -326,8 +325,8 @@ public class User {
     private String m_lastName;
     private String m_room;
     private long m_userId;
-    private bool m_google;
-    private bool m_exists;
+    private boolean m_google;
+    private boolean m_exists;
 
     //STATIC MEMBERS
     private static final String EXISTS_SQL =

@@ -4,6 +4,9 @@ import java.sql.*;
 import javax.sql.*;
 import java.util.*;
 import javax.json.*;
+import javax.naming.NamingException;
+
+import coop.icc.escher.pinedesk.util.DoubleKeyCache;
 
 public class Group {
     //STATIC LOOKUP/CREATE METHODS
@@ -14,8 +17,8 @@ public class Group {
             try (Statement stmt = conn.createStatement()) {
                 try (ResultSet rs = stmt.executeQuery(LOOKUP_ALL_SQL)) {
                     while (rs.next()) {
-                        if (s_groupCache.contains(rs.getLong("groupid")))
-                            groups.add(s_groupCache.lookup(rs.getLong("groupid")));
+                        if (s_groupCache.containsK1(rs.getLong("groupid")))
+                            groups.add(s_groupCache.lookupK1(rs.getLong("groupid")));
                         else
                             groups.add(new Group (rs));
                     }
@@ -36,8 +39,8 @@ public class Group {
 
                 try (ResultSet rs = pstmt.executeQuery()) {
                     while (rs.next()) {
-                        if (s_groupCache.contains(rs.getLong("groupid")))
-                            groups.add(s_groupCache.lookup(rs.getLong("groupid")));
+                        if (s_groupCache.containsK1(rs.getLong("groupid")))
+                            groups.add(s_groupCache.lookupK1(rs.getLong("groupid")));
                         else
                             groups.add(new Group (rs));
                     }
@@ -51,8 +54,8 @@ public class Group {
     public static Group lookup (String name) throws SQLException,
                                                     NamingException,
                                                     NoSuchGroupException {
-        if (s_groupCache.contains(name))
-            return s_groupCache.lookup(name);
+        if (s_groupCache.containsK2(name))
+            return s_groupCache.lookupK2(name);
 
         try (Connection conn = Common.getConnection()) {
             String sql = String.format(LOOKUP_BY_ATTR_SQL, "name");
@@ -66,15 +69,13 @@ public class Group {
                 }
             }
         }
-
-        return new Group ();
     }
 
     public static Group lookup (long id) throws SQLException,
                                                 NamingException,
                                                 NoSuchGroupException {
-        if (s_groupCache.contains(name))
-            return s_groupCache.lookup(name);
+        if (s_groupCache.containsK1(id))
+            return s_groupCache.lookupK1(id);
 
         try (Connection conn = Common.getConnection()) {
             String sql = String.format(LOOKUP_BY_ATTR_SQL, "groupid");
@@ -88,8 +89,6 @@ public class Group {
                 }
             }
         }
-
-        return new Group ();
     }
 
     public static void add (Group group) throws SQLException,
@@ -129,7 +128,7 @@ public class Group {
 
             //Add group members
             try (PreparedStatement pstmt = conn.prepareStatement(ADD_MEMBER_SQL)) {
-                for (User member : m_members) {
+                for (User member : group.m_members) {
                     pstmt.setLong(1, group.m_groupId);
                     pstmt.setLong(2, member.getId());
                     pstmt.addBatch();
@@ -142,17 +141,20 @@ public class Group {
         s_groupCache.insert(group.m_groupId, group.m_name, group);
     }
 
-    private static User getUser (ResultSet rs) throws SQLException {
+    private static User getUser (ResultSet rs) throws SQLException,
+                                                      NamingException {
         long id = rs.getLong("userid");
 
-        if (User.inCache(id)) return User.lookup(id);
+        try {
+            if (User.inCache(id)) return User.lookup(id);
+        } catch (NoSuchUserException nsue) {}
 
         return new User (rs);
     }
 
     //CONSTRUCTORS
     public Group () {
-        this(null);
+        this((User)null);
     }
 
     public Group (User admin) {
@@ -162,7 +164,7 @@ public class Group {
         m_members = new ArrayList<User> ();
     }
 
-    Group (ResultSet rs) throws SQLException {
+    Group (ResultSet rs) throws SQLException, NamingException {
         m_groupId = rs.getLong("groupid");
         m_name = rs.getString("name");
         m_longName = rs.getString("longname");
@@ -177,8 +179,8 @@ public class Group {
 
     public long getId () { return m_groupId; }
 
-    public boolean hasMember (User user) {
-        if (m_exists && m_members.length() == 0) updateMembers();
+    public boolean hasMember (User user) throws SQLException, NamingException {
+        if (m_exists && m_members.size() == 0) updateMembers();
 
         for (User u : m_members) {
             if (u.getId() == user.getId()) return true;
@@ -187,8 +189,8 @@ public class Group {
         return false;
     }
 
-    public List<User> getMembers () {
-        if (m_exists && m_members.length() == 0) updateMembers();
+    public List<User> getMembers () throws SQLException, NamingException {
+        if (m_exists && m_members.size() == 0) updateMembers();
 
         return Collections.unmodifiableList(m_members);
     }
@@ -200,7 +202,7 @@ public class Group {
             throw new NoSuchUserException ("User is invalid or does not exist");
 
         if (m_exists) {
-            if (m_members.length() == 0) updateMembers();
+            if (m_members.size() == 0) updateMembers();
 
             try (Connection conn = Common.getConnection()) {
                 try (PreparedStatement pstmt = conn.prepareStatement(ADD_MEMBER_SQL)) {
@@ -214,7 +216,7 @@ public class Group {
                         case 1022:  //duplicate primary key -> mapping already exists
                             throw UserExistsException.forGroupAdd(user, this, sqle);
                         case 1452:  //foreign key doesn't exist -> no such user
-                            throw NoSuchUserException.forGroupAdd(user.getId(), sqle);
+                            throw NoSuchUserException.forUserLookup(user.getId(), sqle);
                         default:
                             throw sqle;
                     }
@@ -234,7 +236,7 @@ public class Group {
             throw new NoSuchUserException ("User is invalid or does not exist");
 
         if (m_exists) {
-            if (m_members.length() == 0) updateMembers();
+            if (m_members.size() == 0) updateMembers();
 
             try (Connection conn = Common.getConnection()) {
                 try (PreparedStatement pstmt = conn.prepareStatement(REMOVE_MEMBER_SQL)) {
@@ -318,7 +320,7 @@ public class Group {
     }
 
     public JsonObjectBuilder jsonify () throws SQLException, NamingException {
-        return jsonify(false)l
+        return jsonify(false);
     }
 
     private void update (String key, long value) throws SQLException,

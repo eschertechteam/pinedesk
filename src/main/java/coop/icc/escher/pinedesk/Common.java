@@ -2,6 +2,7 @@ package coop.icc.escher.pinedesk;
 
 import java.sql.*;
 import javax.sql.*;
+import javax.json.*;
 import javax.naming.*;
 
 public class Common {
@@ -10,7 +11,7 @@ public class Common {
     }
 
     public static Connection getConnection () throws NamingException, SQLException {
-        Context ctx = ((Context)new InitialContext()).lookup("java:comp/env");
+        Context ctx = (Context)(new InitialContext()).lookup("java:comp/env");
 
         return ((DataSource)ctx.lookup("jdbc/pinedesk")).getConnection();
     }

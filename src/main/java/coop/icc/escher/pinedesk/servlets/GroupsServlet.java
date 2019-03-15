@@ -19,9 +19,10 @@ public class GroupsServlet extends HttpServlet {
     @Override
     protected void doGet (HttpServletRequest req, HttpServletResponse resp)
                          throws ServletException {
+        Map<String,String[]> params = req.getParameterMap();
         String path = req.getPathInfo();
         JsonObjectBuilder info = Common.createObjectBuilder();
-        User user = ServletUtils.getCurrentUser(req.getSession());
+        User user = ServletUtils.getActiveUser(req.getSession());
 
         if (path == null) {
             resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
@@ -80,8 +81,8 @@ public class GroupsServlet extends HttpServlet {
                           throws ServletException {
         Map<String,String[]> params = req.getParameterMap();
         String path = req.getPathInfo();
-        JsonObjectBuilder = ServletUtils.createObjectBuilder();
-        User currentUser = ServletUtils.getCurrentUser(req.getSession());
+        JsonObjectBuilder info = Common.createObjectBuilder();
+        User currentUser = ServletUtils.getActiveUser(req.getSession());
     }
 
     private void queryGroup (Map<String, String[]> params,
@@ -95,12 +96,12 @@ public class GroupsServlet extends HttpServlet {
         case "mine":
             try {
                 List<Group> groups = (rawQuery.equals("all") ? Group.getAll() 
-                                                             : user.getGroups);
+                                                             : user.getGroups());
                 JsonArrayBuilder arr = Common.createArrayBuilder();
 
                 for (Group group : groups) arr.add(group.jsonify(showMembers));
 
-                ServletUtils.writeJson(resp, arr);
+                ServletUtils.writeJson(resp, arr.build());
             } catch (SQLException | NamingException e) {
                 throw new ServletException (e);
             }
@@ -138,6 +139,8 @@ public class GroupsServlet extends HttpServlet {
         }
 
         Group group = null;
+        List<User> members = null;
+        JsonArrayBuilder arr = Common.createArrayBuilder();
 
         try {
             if (rawGroup.matches(SHORTNAME_PATTERN)) {
@@ -149,6 +152,8 @@ public class GroupsServlet extends HttpServlet {
                 info.add("reason", "Malformatted group ID or shortname");
                 return;
             }
+            
+            members = group.getMembers();
         } catch (SQLException | NamingException e) {
             throw new ServletException (e);
         } catch (NoSuchGroupException nsge) {
@@ -156,10 +161,7 @@ public class GroupsServlet extends HttpServlet {
             info.add("reason", "The requested group does not exist");
             return;
         }
-
-        List<User> members = group.getMembers();
-        JsonArrayBuilder arr = Common.createArrayBuilder();
-
+        
         for (User member : members) arr.add(member.jsonify(false));
 
         ServletUtils.writeJson(resp, arr.build());

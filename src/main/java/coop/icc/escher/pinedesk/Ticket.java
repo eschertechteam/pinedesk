@@ -4,24 +4,21 @@ import java.sql.*;
 import javax.sql.*;
 import java.util.*;
 import java.time.LocalDateTime;
+import java.io.IOException;
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Paths;
+import javax.naming.NamingException;
 
 public class Ticket {
     public enum Status {
         UNASSIGNED("Unassigned"),
         IN_PROGRESS("In Progress"),
-        COMPLETE("Complete")
+        COMPLETE("Complete");
 
         private final String value;
 
-        public Status () {
-            this(UNASSIGNED);
-        }
-
-        public Status (String value_) {
-            value = value_;
-        }
+        Status (String s) { value = s; }
 
         @Override
         public String toString() { return value; }
@@ -30,7 +27,7 @@ public class Ticket {
     public class Attachment {
         Attachment (Ticket parent, long id, String filepath) {
             m_parent = parent;
-            m_id = id;
+            m_attachId = id;
             m_filepath = filepath;
 
             try {
@@ -45,13 +42,13 @@ public class Ticket {
             return m_filepath.replaceAll("*.\\/+", "");
         }
         
-        public File open () { return File (m_filepath); }
+        public File open () { return new File (m_filepath); }
         public void delete () throws SQLException, NamingException,
                                      IOException {
             try (Connection conn = Common.getConnection()) {
                 try (PreparedStatement pstmt = conn.prepareStatement(Ticket.REMOVE_ATTACH)) {
                     pstmt.setLong(1, m_parent.m_ticketId);
-                    pstmt.setLong(2, m_id);
+                    pstmt.setLong(2, m_attachId);
 
                     pstmt.executeUpdate();
                 }
@@ -80,7 +77,7 @@ public class Ticket {
 
         public Ticket getParent () { return m_parent; }
         public LocalDateTime getPostDate () { return m_postDate; }
-        public String getEditDate () { return m_editDate; }
+        public LocalDateTime getEditDate () { return m_editDate; }
         public long getId () { return m_commentId; }
         public User getPoster () { return m_postedBy; }
         public boolean isStatusChange () { return m_statusChange; }
@@ -154,7 +151,8 @@ public class Ticket {
         private boolean m_statusChange;
     }
 
-    public static Ticket lookup (long id) throws SQLException, NamingException {
+    public static Ticket lookup (long id) throws SQLException, NamingException,
+                                                 NoSuchTicketException {
         try (Connection conn = Common.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_ID_SQL)) {
                 pstmt.setLong(1, id);
@@ -165,33 +163,27 @@ public class Ticket {
                 }
             }
         }
-
-        return new Ticket ();
     }
 
     public static List<Ticket> getAll () throws SQLException, NamingException {
         try (Connection conn = Common.getConnection()) {
-            try (Statement stmt = conn.getStatement()) {
+            try (Statement stmt = conn.createStatement()) {
                 try (ResultSet rs = stmt.executeQuery(LOOKUP_ALL_SQL)) {
                     return buildTicketList(rs);
                 }
             }
         }
-
-        return new ArrayList<Ticket> ();
     }
 
     public static List<Ticket> getGlobal () throws SQLException,
                                                    NamingException {
         try (Connection conn = Common.getConnection()) {
-            try (Statement stmt = conn.getStatement()) {
+            try (Statement stmt = conn.createStatement()) {
                 try (ResultSet rs = stmt.executeQuery(LOOKUP_GLOBAL_SQL)) {
                     return buildTicketList(rs);
                 }
             }
         }
-
-        return new ArrayList<Ticket> ();
     }
 
     public static List<Ticket> getByReporter (User reporter) throws SQLException, 
@@ -205,8 +197,6 @@ public class Ticket {
                 }
             }
         }
-
-        return new ArrayList<Ticket> ();
     }
 
     public static List<Ticket> getByAssignee (User assignee) throws SQLException,
@@ -220,8 +210,6 @@ public class Ticket {
                 }
             }
         }
-
-        return new ArrayList<Ticket> ();
     }
 
     public static List<Ticket> getByGroup (Group group) throws SQLException,
@@ -235,8 +223,6 @@ public class Ticket {
                 }
             }
         }
-
-        return new ArrayList<Ticket> ();
     }
 
     public static List<Ticket> getByReportDate (LocalDateTime start,
@@ -253,8 +239,6 @@ public class Ticket {
                 }
             }
         }
-
-        return new ArrayList<Ticket> ();
     }
 
     public static List<Ticket> getByCompleteDate (LocalDateTime start,
@@ -263,41 +247,39 @@ public class Ticket {
                                                         NamingException {
         try (Connection conn = Common.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement(LOOKUP_BY_COMPL_DATE_SQL)) {
-                pstmt.setTimestamp(1, new Timestamp (start));
-                pstmt.setTimestamp(2, new Timestamp (end));
+                pstmt.setTimestamp(1, Timestamp.valueOf(start));
+                pstmt.setTimestamp(2, Timestamp.valueOf(end));
 
                 try (ResultSet rs = pstmt.executeQuery()) {
                     return buildTicketList(rs);
                 }
             }
         }
-
-        return new ArrayList<Ticket> ();
     }
 
     public static void add (Ticket t) throws SQLException, NamingException {
-        if (m_title.equals(""))
+        if (t.m_title.equals(""))
             throw new IllegalArgumentException ("No title given.");
 
         try (Connection conn = Common.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement(NEW_SQL)) {
                 pstmt.setString(1, t.m_title);
                 pstmt.setString(2, t.m_description);
-                pstmt.setLong(3, t.m_reporter.getId);
-                pstmt.setTimestamp(5, new Timestamp (t.m_reportDate));
-                pstmt.setTimestamp(6, (t.m_completeDate == null ? null : new Timestamp (t.m_completeDate)));
+                pstmt.setLong(3, t.m_reporter.getId());
+                pstmt.setTimestamp(5, Timestamp.valueOf(t.m_reportDate));
+                pstmt.setTimestamp(6, (t.m_completeDate == null ? null : Timestamp.valueOf(t.m_completeDate)));
                 pstmt.setLong(7, t.m_group.getId());
                 pstmt.setString(8, t.m_status.toString());
                 pstmt.setBoolean(9, t.m_global);
 
-                if (m_status == Status.UNASSIGNED) pstmt.setNull(4);
+                if (t.m_status == Status.UNASSIGNED) pstmt.setNull(4, Types.VARCHAR);
                 else pstmt.setLong(4, t.m_assignee.getId());
 
                 pstmt.executeUpdate();
 
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next()) {
-                        t.m_userId = rs.getLong(1);
+                        t.m_ticketId = rs.getLong(1);
                         t.m_exists = true;
                     }
                 }
@@ -305,7 +287,8 @@ public class Ticket {
         }
     }
 
-    private static List<Ticket> buildTicketList (ResultSet rs) throws SQLException {
+    private static List<Ticket> buildTicketList (ResultSet rs) throws SQLException,
+                                                                      NamingException {
         List<Ticket> tix = new ArrayList<Ticket> ();
 
         while (rs.next()) tix.add(new Ticket (rs));
@@ -313,19 +296,22 @@ public class Ticket {
         return tix;
     }
 
-    Ticket (ResultSet rs) throws SQLException {
+    Ticket (ResultSet rs) throws SQLException, NamingException {
         long tmpAssigneeId = rs.getLong("assignee");
 
-        if (rs.wasNull()) m_assignee = null;
-        else m_assignee = User.lookup(tmpAssigneeId);
+        try {
+            if (rs.wasNull()) m_assignee = null;
+            else m_assignee = User.lookup(tmpAssigneeId);
+            
+            m_reporter = User.lookup(rs.getLong("reporter"));
+            m_group = Group.lookup(rs.getLong("group"));
+        } catch (NoSuchGroupException | NoSuchUserException e) {} //this should never happen
 
         m_ticketId = rs.getLong("ticketid");
         m_title = rs.getString("title");
         m_description = rs.getString("description");
-        m_reporter = User.lookup(rs.getLong("reporter"));
         m_reportDate = rs.getTimestamp("reportdate").toLocalDateTime();
-        m_group = Group.lookup(rs.getLong("group"));
-        m_status = new Status (rs.getString("status"));
+        m_status = Status.valueOf(rs.getString("status"));
         m_global = rs.getBoolean("global");
 
         if (rs.getTimestamp("completedate") == null)
@@ -471,7 +457,8 @@ public class Ticket {
         return null;
     }
 
-    public Attachment createAttachment (String filepath) {
+    public Attachment createAttachment (String filepath) throws SQLException,
+                                                                NamingException {
         try (Connection conn = Common.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement(INSERT_ATTACH)) {
                 pstmt.setLong(1, m_ticketId);
@@ -507,7 +494,7 @@ public class Ticket {
                                                   editDate, rs.getString(3),
                                                   isStatus, rs.getLong(1)));
                     }
-                }
+                } catch (NoSuchUserException nsue) {}   //this should never happen
             }
         }
 
@@ -531,7 +518,7 @@ public class Ticket {
                                             rs.getString(4), isStatus,
                                             rs.getLong(1));
                     }
-                }
+                } catch (NoSuchUserException nsue) {}   //this should never happen
             }
         }
 
@@ -552,7 +539,7 @@ public class Ticket {
                 pstmt.setString(4, content);
                 pstmt.setBoolean(5, isStatus);
                 
-                if (isStatus) pstmt.setNull(6);
+                if (isStatus) pstmt.setNull(6, Types.VARCHAR);
                 else pstmt.setLong(6, postedBy.getId());
 
                 pstmt.executeUpdate();
@@ -569,7 +556,8 @@ public class Ticket {
         return null;
     }
 
-    public Comment createComment (String statusText) {
+    public Comment createComment (String statusText) throws SQLException,
+                                                            NamingException {
         return createComment(null, statusText);
     }
 
@@ -696,7 +684,7 @@ public class Ticket {
         LOOKUP_COMMENT_BASE + " ORDER BY postdate ASC";
     private static final String INSERT_COMMENT =
         "INSERT INTO tcomments (ticketid, postdate, editdate, content, "
-        "statuschange, postedby)  VALUES (?,?,?,?,?,?)";
+        + "statuschange, postedby)  VALUES (?,?,?,?,?,?)";
     private static final String REMOVE_COMMENT =
         "DELETE FROM tcomments WHERE ticketid=? AND commentid=?";
     private static final String UPDATE_COMMENT =

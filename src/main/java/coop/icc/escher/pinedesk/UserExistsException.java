@@ -2,10 +2,8 @@ package coop.icc.escher.pinedesk;
 
 public class UserExistsException extends Exception {
     public UserExistsException (boolean attemptingLink) {
-        if (attemptingLink)
-            super("Cannot link an existing, unlinked account to Google.");
-        else
-            super("Cannot unlink an account that has already been linked to Google.");
+        super(attemptingLink ? "Cannot link an existing, unlinked account to Google."
+                             : "Cannot unlink an account that has already been linked to Google.");
     }
     public UserExistsException (String reason) {
         super(reason);

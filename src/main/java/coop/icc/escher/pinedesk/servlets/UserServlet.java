@@ -29,20 +29,13 @@ public class UserServlet extends HttpServlet {
 
         switch (path) {
         case "/me":         //Get user information *****************************
-            try {
-                if (user == null) {
-                    resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                    info.add("reason", "Must be logged in to access this resource");
-                    return;
-                }
-
-                ServletUtils.writeJson(resp, user.jsonify().build());
-            } catch (NoSuchUserException nsue) {
-                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
-                info.add("reason", "Invalid session -- current user does not exist");
-            } catch (SQLException | NamingException e) {
-                throw new ServletException (e);
+            if (user == null) {
+                resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                info.add("reason", "Must be logged in to access this resource");
+                return;
             }
+
+            ServletUtils.writeJson(resp, user.jsonify().build());
             
             break;
         case "/exists":     //Check if user exists *****************************
@@ -56,9 +49,9 @@ public class UserServlet extends HttpServlet {
                 JsonArrayBuilder respArr = Common.createArrayBuilder();
                 
                 for (String email : params.get("email")) {
-                    if (!user.matches(EMAIL_PATTERN)) continue;
+                    if (!email.matches(EMAIL_PATTERN)) continue;
 
-                    respArr.add(createObjectBuilder()
+                    respArr.add(Common.createObjectBuilder()
                                     .add(email, User.exists(email)));
                 }
 
@@ -71,7 +64,7 @@ public class UserServlet extends HttpServlet {
         case "/matchPrefix":    //Find users matching prefix *******************
             try {
                 if (user == null) {
-                    resp.sendError(HttpServletResponse.SC_FORBIDDEN);
+                    resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     info.add("reason", "Must be logged in to access this resource");
                     return;
                 }
@@ -132,7 +125,7 @@ public class UserServlet extends HttpServlet {
                 break;
             }
 
-            resp.setStatus(editUser(params, user.longValue()));
+            resp.setStatus(editUser(params, user));
 
             switch (resp.getStatus()) {
             case HttpServletResponse.SC_FORBIDDEN:
@@ -154,9 +147,9 @@ public class UserServlet extends HttpServlet {
             }
 
             {
-                long userId = verifyUser(params.get("email"), params.get("verify"));
+                long userId = verifyUser(params.get("email")[0], params.get("verify")[0]);
 
-                if (user == -1L) {
+                if (userId == -1L) {
                     resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     info.add("reason", "Incorrect email or password");
                 } else {
@@ -187,7 +180,7 @@ public class UserServlet extends HttpServlet {
             resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
 
-        writeJson(resp, info.build(), false);
+        ServletUtils.writeJson(resp, info.build(), false);
     }
 
     long verifyUser (String email, String passwd) throws ServletException {
@@ -210,21 +203,21 @@ public class UserServlet extends HttpServlet {
     int addUser (Map<String,String[]> params) throws ServletException {
         if (!(params.containsKey("email") && params.containsKey("passwd")
               && params.containsKey("room"))
-            || !Common.isValidRoom(params.get("room"))) {
+            || !Common.isValidRoom(params.get("room")[0])) {
             return HttpServletResponse.SC_BAD_REQUEST;
         }
 
         User newUser = new User ();
 
         try {
-            newUser.setEmail(params.get("email"));
-            newUser.setPassword(params.get("password"));
-            newUser.setRoom(params.get("room"));
+            newUser.setEmail(params.get("email")[0]);
+            newUser.setPassword(params.get("password")[0]);
+            newUser.setRoom(params.get("room")[0]);
 
             if (params.containsKey("firstName"))
-                newUser.setFirstName(params.get("firstName"));
+                newUser.setFirstName(params.get("firstName")[0]);
             if (params.containsKey("lastName"))
-                newUser.setLastName(params.get("lastName"));
+                newUser.setLastName(params.get("lastName")[0]);
 
             User.add(newUser);
         } catch (SQLException | NamingException e) {
@@ -236,40 +229,31 @@ public class UserServlet extends HttpServlet {
         return HttpServletResponse.SC_NO_CONTENT;
     }
 
-    int editUser (Map<String,String[]> params, long userid) throws ServletException {
-        User user = null;
-        ServletException except = null;
-
+    int editUser (Map<String,String[]> params, User user) throws ServletException {
         try {
-            user = User.lookup(userid);
-        } catch (SQLException | NamingException e) {
-            throw new ServletException (e);
-        }
-
-        try {
-            if (params.containsKey("room") && !Common.isValidRoom(params.get("room")))
+            if (params.containsKey("room") && !Common.isValidRoom(params.get("room")[0]))
                 return HttpServletResponse.SC_BAD_REQUEST;
 
             //Setting sensitive data - require password verification
             if ((params.containsKey("email") || params.containsKey("passwd")) &&
-                (!params.containsKey("verify") || !user.verifyPassword(params.get("verify"))) {
+                (!params.containsKey("verify") || !user.verifyPassword(params.get("verify")[0]))) {
                 return HttpServletResponse.SC_FORBIDDEN;
             }
             
             if (params.containsKey("firstName"))
-                user.setFirstName(params.get("firstName"));
+                user.setFirstName(params.get("firstName")[0]);
 
             if (params.containsKey("lastName"))
-                user.setLastName(params.get("lastName"));
+                user.setLastName(params.get("lastName")[0]);
 
             if (params.containsKey("room"))
-                user.setRoom(params.get("room"));
+                user.setRoom(params.get("room")[0]);
 
             if (params.containsKey("email"))
-                user.setEmail(params.get("email"));
+                user.setEmail(params.get("email")[0]);
 
             if (params.containsKey("passwd"))
-                user.setPassword(params.get("passwd"));
+                user.setPassword(params.get("passwd")[0]);
 
         } catch (SQLException | NamingException e) {
             throw new ServletException (e);

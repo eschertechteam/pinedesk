@@ -1,6 +1,6 @@
 package coop.icc.escher.pinedesk;
 
-class NoSuchGroupException extends Exception {
+public class NoSuchGroupException extends Exception {
     public NoSuchGroupException (long id) {
         this(id, null);
     }
