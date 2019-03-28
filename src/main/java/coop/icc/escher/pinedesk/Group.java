@@ -107,7 +107,7 @@ public class Group {
                 pstmt.setString(1, group.m_name);
                 pstmt.setString(2, group.m_longName);
                 pstmt.setString(3, group.m_description);
-                pstmt.setLong(4, group.m_groupId);
+                pstmt.setLong(4, m_admin.getId());
 
                 pstmt.executeUpdate();
 
@@ -162,6 +162,8 @@ public class Group {
         m_admin = admin;
         m_exists = false;
         m_members = new ArrayList<User> ();
+
+        if (admin != null) m_members.add(m_admin);
     }
 
     Group (ResultSet rs) throws SQLException, NamingException {
