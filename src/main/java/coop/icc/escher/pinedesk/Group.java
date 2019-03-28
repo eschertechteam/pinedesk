@@ -9,6 +9,18 @@ import javax.naming.NamingException;
 import coop.icc.escher.pinedesk.util.DoubleKeyCache;
 
 public class Group {
+    public enum Type {
+        REPORTING("Reporting"),
+        TASK("Task");
+
+        private final String value;
+
+        Status (String s) { value = s; }
+
+        @Override
+        public String toString() { return value; }
+    }
+
     //STATIC LOOKUP/CREATE METHODS
     public static List<Group> getAll () throws SQLException, NamingException {
         List<Group> groups = new ArrayList<Group>();
@@ -159,6 +171,7 @@ public class Group {
 
     public Group (User admin) {
         m_name = m_longName = m_description = "";
+        m_type = Type.REPORTING;
         m_admin = admin;
         m_exists = false;
         m_members = new ArrayList<User> ();
@@ -297,6 +310,14 @@ public class Group {
         m_description = description;
     }
 
+    public Type getType () { return m_type; }
+    public void setType (Type type) {
+        if (m_exists)
+            throw new IllegalStateException ("Cannot change the type of an existing group.");
+
+        m_type = type;
+    }
+
     public JsonObjectBuilder jsonify (boolean withMembers) throws SQLException,
                                                                   NamingException {
         if (!m_exists) return null;
@@ -373,22 +394,23 @@ public class Group {
     private String m_name;
     private String m_longName;
     private String m_description; 
+    private Type m_type;
     private long m_groupId;
     private boolean m_exists;
 
     private static DoubleKeyCache<Long, String, Group> s_groupCache;
 
     private static final String LOOKUP_ALL_SQL = 
-        "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
-        + "u.email, u.google, u.firstname, u.lastname, u.room "
+        "SELECT g.groupid, g.name, g.longname, g.description, g.type, "
+        + "u.userid, u.email, u.google, u.firstname, u.lastname, u.room "
         + "FROM groups g JOIN users u ON g.admin=u.userid ORDER BY g.groupid";
     private static final String LOOKUP_BY_ATTR_SQL =
-        "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
-        + "u.email, u.google, u.firstname, u.lastname, u.room "
+        "SELECT g.groupid, g.name, g.longname, g.description, g.type, "
+        + "u.userid, u.email, u.google, u.firstname, u.lastname, u.room "
         + "FROM groups g JOIN users u ON g.admin=u.userid WHERE g.%s=?";
     private static final String LOOKUP_BY_MEMBER_SQL =
-        "SELECT g.groupid, g.name, g.longname, g.description, u.userid, "
-        + "u.email, u.passhash, u.google, u.firstname, u.lastname, u.room "
+        "SELECT g.groupid, g.name, g.longname, g.description, g.type, "
+        + "u.userid, u.email, u.google, u.firstname, u.lastname, u.room "
         + "FROM groups g NATURAL JOIN gmember m "
         + "JOIN users u ON g.admin=u.userid "
         + "WHERE m.userid=? ORDER BY g.groupid";
@@ -397,8 +419,8 @@ public class Group {
         + "u.lastname, u.room FROM gmembers g NATURAL JOIN users u "
         + "WHERE g.groupid=? ORDER BY u.lastname ASC, u.firstname ASC";
     private static final String GROUP_ADD_SQL =
-        "INSERT INTO groups (name, longname, description, admin) "
-        + "VALUES (?,?,?,?)";
+        "INSERT INTO groups (name, longname, description, admin, type) "
+        + "VALUES (?,?,?,?,?)";
     private static final String ADD_MEMBER_SQL = 
         "INSERT INTO gmembers (groupid, userid) VALUES (?,?)";
     private static final String REMOVE_MEMBER_SQL =

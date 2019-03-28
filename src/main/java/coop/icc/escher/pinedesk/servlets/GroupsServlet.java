@@ -128,11 +128,18 @@ public class GroupsServlet extends HttpServlet {
                         }
                     }
 
-                    resp.setStatus(addGroup(params, admin));
-                }
+                    if (!params.containsKey("type")) {
+                        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                        info.add("reason", "Missing type paramter");
+                    }
 
-                if (resp.getStatus() == HttpServletResponse.SC_BAD_REQUEST) {
-                    info.add("reason", "Missing parameter or malformed short name");
+                    try {
+                        addGroup(params, admin);
+                        resp.setStatus(HttpServletResponse.SC_OK);
+                    } catch (IllegalArgumentException iae) {
+                        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                        info.add("reason", iae.getMessage());
+                    }
                 }
                 break;
             default:
@@ -174,13 +181,86 @@ public class GroupsServlet extends HttpServlet {
                         break;
                     }
 
-                    resp.setStatus(editGroup(group, params));
-
-                    if (resp.getStatus() == HttpServletResponse.SC_BAD_REQUEST)
-                        info.add("reason", "Invalid or missing parameter");
+                    try {
+                        resp.setStatus(editGroup(group, params));
+                        resp.setStatus(HttpServletResponse.SC_OK);
+                    } catch (IllegalArgumentException iae) {
+                        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                        info.add("reason", iae.getMessage());
+                    }
 
                     break;
                 case "addMembers":
+                    boolean actionForbidden = currentUser.getId() != group.getAdmin().getId();
+                    boolean userIsMember = false;
+                    actionForbidden &= group.getType().equals(Group.Type.TASK);
+
+                    try {
+                        List<User> members = group.getMembers();
+
+                        for (User member : members) {
+                            if (member.getId() == currentUser.getId()) {
+                                userIsMember = true;
+                                break;
+                            }
+                        }
+                    } catch (SQLException | NamingException e) {
+                        throw new ServletException (e);
+                    }
+
+                    actionForbidden &= !userIsMember;
+
+                    if (actionForbidden) {
+                        resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                        info.add("reason", "You do not have privileges to add members to this group.");
+                        break;
+                    }
+
+                    if (!params.containsKey("user")) {
+                        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                        info.add("reason", "Request must contain one or more `user' parameters.");
+                        break;
+                    }
+
+                    {
+                        JsonArrayBuilder arr = Common.createArrayBuilder();
+                        JsonArrayBuilder warnings = Common.createArrayBuilder();
+                        
+                        for (String rawUser : params.get("user")) {
+                            try {
+                                User newMember = userLookupRaw(rawUser);
+
+                                if (!userIsMember && newMember.getId() != currentUser.getId())
+                                    continue;
+
+                                group.addMember(newMember);
+                                arr.add(rawUser);
+
+                                //If we get here, and the user wasn't initially a
+                                //member, then we cannot add any more members
+                                //(Yes, the user could just submit another request
+                                //to add new members, but this is to discourage
+                                //adding members if you're not a member yourself)
+                                if (!userIsMember) break;
+                            } catch (SQLException | NamingException e) {
+                                throw new ServletException (e);
+                            } catch (NoSuchUserException | UserExistsException e) {
+                                warnings.add("Failed to add user `" + rawUser + "': " + e.getMessage());
+                            }
+                        }
+                        
+                        
+                        info.add("added", arr);
+
+                        JsonArray bWarnings = warnings.build();
+                        if (bWarnings.size() > 0)
+                            info.add("warnings", warnings);
+
+                        if (params.get("user").length > 1 && !userIsMember) {
+                            info.add("note", "Non-members may only add themselves");
+                        }
+                    } 
+                    break;
                 case "removeMembers":
                 }
             }
@@ -277,9 +357,10 @@ public class GroupsServlet extends HttpServlet {
         ServletUtils.writeJson(resp, arr.build());
     }
    
-    private int addGroup (Map<String,String[]> params, User admin)
+    private void addGroup (Map<String,String[]> params, User admin)
                          throws ServletException {
         Group newGroup = new Group (admin);
+        Group.Type groupType = Group.Type.valueOf(params.get("type")[0]);
 
         try {
             newGroup.setAdmin(admin);
@@ -288,7 +369,7 @@ public class GroupsServlet extends HttpServlet {
                 String name = params.get("name")[0];
 
                 if (!name.matches(SHORTNAME_PATTERN))
-                    return HttpServletResponse.SC_BAD_REQUEST;
+                    throw new IllegalArgumentException("Invalid group shortname");
 
                 newGroup.setName(name);
             }
@@ -302,21 +383,50 @@ public class GroupsServlet extends HttpServlet {
             Group.add(newGroup);
         } catch (SQLException | NamingException e) {
             throw new ServletException (e);
-        } catch (IllegalArgumentException iae) {
-            return HttpServletResponse.SC_BAD_REQUEST;
         }
-
-        return HttpServletResponse.SC_OK;
     }
 
-    private int editGroup (Group group, Map<String, String[]> params)
+    private void editGroup (Group group, Map<String, String[]> params)
                           throws ServletException {
         try {
-            if (params.containsKey("admin"))
+            if (params.containsKey("admin")) {
+                User newAdmin = userLookupRaw(params.get("admin")[0]);
+                group.setAdmin(newAdmin);
+            }
+
+            if (params.containsKey("name")) {
+                String name = params.get("name")[0];
+
+                if (!name.matches(SHORTNAME_PATTERN))
+                    throw new IllegalArgumentException ("Invalid group shortname");
+
+                group.setName(name);
+            }
+
+            if (params.containsKey("longName"))
+                group.setLongName(params.get("longName")[0]);
+
+            if (params.containsKey("description"))
+                group.setDescription(params.get("description")[0]);
         } catch (SQLException | NamingException e) {
             throw new ServletException (e);
-        } catch (NoSuchUserException nsue) {
+        } catch (NoSuchUserException | GroupExistsException e) {
+            throw new IllegalArgumentException (e.getMessage(), e);
         }
+    }
+
+    private User userLookupRaw (String raw) throws SQLException, NamingException,
+                                               NoSuchUserException {
+        User user = null;
+
+        if (raw.matches("\\d+"))
+            user = User.lookup(Long.valueOf(raw));
+        else if (raw.matches(EMAIL_PATTERN))
+            user = User.lookup(raw);
+        else
+            throw new IllegalArgumentException("Invalid email address");
+
+        return user;
     }
 
     private static final String SHORTNAME_PATTERN = "^[_\\-A-Za-z0-9]{1,25}$";
